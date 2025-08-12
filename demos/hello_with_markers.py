@@ -6,12 +6,11 @@ def hello_block(name: str) -> str:
     """mARCHCode/ACW
     Rôle: service
     Acceptance (rappel):
-    - retourne une chaîne
-    - raise NotImplementedError par défaut
+    - retourne 'Hello, <name>!'
+    - ne modifie rien hors des marqueurs
     NOTE: Implémentation minimale générée automatiquement.
           Compléter la logique lors des itérations suivantes.
     """
         # TODO: implémenter la logique métier
-        raise NotImplementedError('À implémenter par itération suivante')
-# <ARCH:END hello_block>
+        raise NotImplementedError('À implémenter par itération suivante')# <ARCH:END hello_block>
 #{end_meta}
