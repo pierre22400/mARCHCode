@@ -5,8 +5,8 @@ def hello_demo(name: str) -> str:
     """mARCHCode/ACW
     Rôle: service
     Acceptance (rappel):
-    - retourne une chaîne
-    - raise NotImplementedError par défaut
+    - remplacer le NotImplementedError par une implémentation
+    - retourne 'Hello, <name>!'
     NOTE: Implémentation minimale générée automatiquement.
           Compléter la logique lors des itérations suivantes.
     """
