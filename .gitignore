@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.DS_Store
+.arch_runs/
+.archcode/archive/
+.pytest_cache/
+.vscode/
+.idea/
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.tar.gz
