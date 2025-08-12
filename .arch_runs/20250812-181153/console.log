@@ -1,0 +1,10 @@
+[arch] start run, archive_dir=.arch_runs/20250812-181153
+[plan] id=EP-20250812-BASE
+[git] ensure_branch skipped: ensure_branch() missing 1 required positional argument: 'branch_name'
+[module] demo (2)
+[plan_line] PL-0001 file=demos/hello_demo.py
+[apply] file written
+[git] commit skipped: git add: fatal: not a git repository (or any of the parent directories): .git
+[plan_line] PL-0002 file=demos/hello_demo.py
+[apply] file written
+[git] commit skipped: git add: fatal: not a git repository (or any of the parent directories): .git

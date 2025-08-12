@@ -1,0 +1,32 @@
+execution_plan_id: EP-20250812-BASE
+modules:
+  - module: demo
+    plan_lines:
+      - plan_line_id: PL-0001
+        file: demos/hello_demo.py
+        op: create
+        role: service
+        target_symbol: hello_demo
+        signature: "def hello_demo(name: str) -> str:"
+        acceptance:
+          - "retourne une chaîne"
+          - "raise NotImplementedError par défaut"
+        constraints:
+          docstring: google
+          typing: strict
+        description: "Service de démo — création d’un point d’entrée simple"
+
+      - plan_line_id: PL-0002
+        file: demos/hello_demo.py
+        op: modify
+        role: service
+        target_symbol: hello_demo
+        signature: "def hello_demo(name: str) -> str:"
+        acceptance:
+          - "remplacer le NotImplementedError par une implémentation"
+          - "retourne 'Hello, <name>!'"
+        constraints:
+          docstring: google
+          typing: strict
+        depends_on: ["PL-0001"]
+        description: "Itération suivante — implémentation concrète"

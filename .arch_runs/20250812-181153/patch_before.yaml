@@ -1,0 +1,45 @@
+_archived_at: "2025-08-12T18:11:53"
+code: |
+  #{begin_meta: { bus_message_id: BUS-UNKNOWN, content_hash: 413b5985656d, file: demos/hello_demo.py, module: demos, plan_line_id: PL-0002, role: service, status_agent_file_checker: pending, status_agent_module_checker: pending, timestamp: 2025-08-12T18:11:53 }}
+  from __future__ import annotations
+  
+  def hello_demo(name: str) -> str:
+      """mARCHCode/ACW
+      Rôle: service
+      Acceptance (rappel):
+      - remplacer le NotImplementedError par une implémentation
+      - retourne 'Hello, <name>!'
+      NOTE: Implémentation minimale générée automatiquement.
+            Compléter la logique lors des itérations suivantes.
+      """
+          # TODO: implémenter la logique métier
+          raise NotImplementedError('À implémenter par itération suivante')
+  #{end_meta}
+error_trace: null
+fatal_error: null
+global_status: null
+history:
+  - "ACW: from task_id=TASK-PL-0002"
+  - "fs_intent=fullfile"
+  - "payload_hash=413b5985656d"
+  - "writer_prompt: present"
+  - "writer_prompt_yaml: present"
+history_ext: []
+meta:
+  bus_message_id: BUS-UNKNOWN
+  comment_agent_file_checker: null
+  comment_agent_module_checker: null
+  commit_sha: null
+  file: demos/hello_demo.py
+  module: demos
+  plan_line_id: PL-0002
+  role: service
+  status_agent_file_checker: pending
+  status_agent_module_checker: pending
+  timestamp: "2025-08-12T18:11:53"
+next_action: null
+patch_id: PATCH-ca55c78e
+previous_hash: null
+source_agent: agent_code_writer
+version: 1
+warning_level: null
