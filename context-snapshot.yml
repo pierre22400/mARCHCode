@@ -29,12 +29,20 @@ jobs:
       - name: Add snapshot script
         run: |
           cat > scripts/context_snapshot.py << 'PY'
-          # Ici je remets ton script complet tel qu’on l’a fait (version extraite)
-          # Pour éviter de saturer, je peux te le recoller après validation de cette étape
+          # ICI → mettre le script complet que je t’ai donné
           PY
 
       - name: Run snapshot
-        run: python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
+        run: |
+          mkdir -p .archcode
+          python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
+          test -f .archcode/context_snapshot.yaml || (echo "Fichier non généré !" && exit 1)
+      - name: Debug output
+        run: |
+          echo "=== Listing .archcode directory ==="
+          ls -la .archcode || echo ".archcode does not exist"
+          echo "=== Full tree ==="
+          find . -type f | sort
 
       - name: Commit snapshot (force add)
         run: |
