@@ -27,7 +27,7 @@ git commit -m "sync: mise à jour locale envoyée vers GitHub"
 
 echo.
 echo [INFO] Envoi du commit sur la branche main de GitHub...
-git push origin main
+git push origin master:main
 
 if errorlevel 1 (
     echo.
