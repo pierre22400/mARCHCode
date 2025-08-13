@@ -6,31 +6,34 @@ import hashlib
 import uuid
 
 from core.types import PlanLine
+"""
+agent_code_writer_planner (ACWP) — mARCHCode / Phase 3
+======================================================
 
-# ------------------------------------------------------------
-# agent_code_writer_planner (ACWP) — mARCHCode / Phase 3
-# ------------------------------------------------------------
-# Rôle :
-#   Transformer des PlanLine "atomiques" en tâches prêtes pour ACW.
-#   Chaque tâche (writer_task) contient :
-#     - Métadonnées essentielles (plan_line_id, file, role, signature, etc.)
-#     - Un prompt texte compact (writer_prompt)
-#     - Un prompt YAML déterministe (writer_prompt_yaml) pour rétro-compat
-#
-# Entrées :
-#   - PlanLine (définie dans core/types.py)
-#   - (Option) execution_context: dict global léger (branché tel quel)
-#   - (Option) bus/user story pour enrichir le YAML (compat V1)
-#
-# Sorties :
-#   - build_writer_task(pl, ...): Dict[str,Any]
-#   - plan_to_writer_tasks([...], ...): List[Dict[str,Any]]
-#   - build_prompt(pl, ...): str (YAML seul, compat héritée)
-#
-# Contrats :
-#   - Aucune génération de code ici.
-#   - ACW consomme writer_task → produit un PatchBlock.
-# ------------------------------------------------------------
+Rôle du module
+--------------
+Transformer des PlanLine "atomiques" en tâches prêtes pour ACW.
+Chaque tâche (writer_task) contient :
+  - Métadonnées essentielles (plan_line_id, file, role, signature, etc.)
+  - Un prompt texte compact (writer_prompt)
+  - Un prompt YAML déterministe (writer_prompt_yaml) pour rétro-compatibilité
+
+Entrées / Sorties
+-----------------
+Entrées :
+  - PlanLine (définie dans core/types.py)
+  - (Option) execution_context : dict global léger (branché tel quel)
+  - (Option) bus/user story pour enrichir le YAML (compat V1)
+Sorties :
+  - build_writer_task(pl, ...) → Dict[str, Any]
+  - plan_to_writer_tasks([...], ...) → List[Dict[str, Any]]
+  - build_prompt(pl, ...) → str (YAML seul, compat héritée)
+
+Contrats respectés
+------------------
+- Aucune génération de code ici.
+- ACW consomme writer_task → produit un PatchBlock.
+"""
 
 
 # ------------------------------ Utils ------------------------------

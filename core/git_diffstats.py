@@ -6,19 +6,42 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 
-# ------------------------------------------------------------
-# git_diffstats — Fusion v1+v2 (métriques riches + helpers Git)
-# ------------------------------------------------------------
-# Points clés :
-#   - compute_diff_stats(repo_root, against_ref="HEAD", include_staged=True, paths=None)
-#       → DiffStatsData (files_changed, loc_added, loc_deleted, patch_size_bytes,
-#         has_binary, paths, by_file)
-#   - compute_diffstats_for_paths(paths, repo_root=None)
-#       → raccourci pratique (worktree vs HEAD, non-staged)
-#   - ensure_branch / stage_and_commit / optional_push
-#       → utilitaires d’adaptation Git pour l’orchestrateur/adaptateurs
-# ------------------------------------------------------------
+"""
+git_diffstats — Fusion v1+v2 (métriques riches + helpers Git)
+=============================================================
 
+Rôle du module
+--------------
+Fournir des métriques détaillées sur les différences Git ainsi que des
+utilitaires de gestion de branches et de commits, destinés à l’orchestrateur
+et aux adaptateurs.
+
+Entrées / Sorties
+-----------------
+Fonctions principales :
+  - compute_diff_stats(repo_root, against_ref="HEAD", include_staged=True, paths=None)
+      → retourne un objet DiffStatsData :
+          * files_changed
+          * loc_added
+          * loc_deleted
+          * patch_size_bytes
+          * has_binary
+          * paths
+          * by_file
+  - compute_diffstats_for_paths(paths, repo_root=None)
+      → raccourci pratique (worktree vs HEAD, non-staged)
+  - ensure_branch(repo_root, branch_name, create_if_missing=True)
+      → assure la présence/positionnement sur une branche
+  - stage_and_commit(repo_root, message, paths=None)
+      → ajoute et commit les fichiers spécifiés
+  - optional_push(repo_root, remote="origin", branch=None)
+      → push optionnel selon configuration
+
+Contrats respectés
+------------------
+- Les métriques doivent être exactes, même en présence de fichiers binaires.
+- Les helpers Git ne doivent pas altérer l’état du dépôt hors opérations explicites.
+"""
 
 @dataclass
 class FileStat:

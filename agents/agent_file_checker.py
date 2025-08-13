@@ -4,18 +4,32 @@ from __future__ import annotations
 from typing import Tuple, List
 from core.types import PatchBlock
 
-# ------------------------------------------------------------
-# Agent FileChecker (LLM-based, format KV minimal)
-# ------------------------------------------------------------
-# Sortie attendue du LLM :
-#   STATUS: ok|rejected
-#   REASONS: raison1 | raison2           # court
-#   STRATEGY: targeted_regeneration|refactor|skip|escalate_to_user|defer_to_next_iteration|reroute_to_module_checker
-#   REMEDIATION: action courte et concrète
-#   COMMENT: justification brève (optionnel)
-#
-# NB : FileChecker n'écrit PAS global_status / next_action.
-# ------------------------------------------------------------
+"""
+Agent FileChecker (LLM-based, format KV minimal)
+================================================
+
+Rôle du module
+--------------
+Analyser un fichier individuellement et produire un rapport minimal au format KV
+pour orienter la suite du pipeline (ModuleChecker, orchestration, etc.).
+
+Entrées / Sorties
+-----------------
+Entrées :
+  - Contenu d’un fichier à analyser
+  - Contexte minimal éventuellement fourni par l’orchestration
+Sorties :
+  - STATUS: ok | rejected
+  - REASONS: raison1 | raison2   (court)
+  - STRATEGY: targeted_regeneration | refactor | skip | escalate_to_user | defer_to_next_iteration | reroute_to_module_checker
+  - REMEDIATION: action courte et concrète
+  - COMMENT: justification brève (optionnel)
+
+Contrats respectés
+------------------
+- FileChecker n’écrit PAS `pb.global_status` ni `pb.next_action` (réservé au ModuleChecker).
+"""
+
 
 _BEGIN_MARK = "#" + "{begin_meta:"
 _END_MARK = "#{end_meta}"

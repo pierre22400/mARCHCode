@@ -9,18 +9,47 @@ import fnmatch
 import json
 
 from core.types import PatchBlock
+"""
+self_dev_policy — Charge/valide une policy et évalue un patch
+=============================================================
 
-# ------------------------------------------------------------
-# self_dev_policy — charge/valide une policy et évalue un patch
-# ------------------------------------------------------------
-# Usage rapide :
-#   policy = SelfDevPolicy.load_from_yaml_text(open("self_dev_policy.yaml").read())
-#   ok, violations = policy.evaluate_patch(pb, diff_stats, branch_name="archcode-self/2025-08-12")
-#   if not ok and policy.mode == "enforce": raise RuntimeError("\n".join(violations))
-#
-# Ce module ne dépend d'aucun parseur YAML externe pour rester MVP.
-# On accepte JSON ou YAML "simple" (key: value ; listes - item) via un parseur tolérant.
-# ------------------------------------------------------------
+Rôle du module
+--------------
+Charger une politique d’auto-développement (self_dev_policy) depuis un texte YAML ou JSON,
+la valider et l’appliquer pour évaluer un PatchBlock en fonction des règles définies.
+
+Entrées / Sorties
+-----------------
+Entrées :
+  - Texte de configuration de policy (YAML ou JSON simple)
+  - PatchBlock (pb)
+  - DiffStatsData (statistiques de diff Git)
+  - Nom de branche (branch_name)
+Sorties :
+  - Tuple (ok: bool, violations: list[str])
+    * ok : True si le patch respecte la policy
+    * violations : liste des violations détectées
+
+Contrats respectés
+------------------
+- Ne dépend d’aucun parseur YAML externe pour le MVP.
+- Accepte uniquement :
+    * JSON valide
+    * YAML “simple” (key: value ; listes en `- item`)
+- Utilise un parseur tolérant pour éviter les erreurs bloquantes.
+- Si policy.mode == "enforce" et qu’il y a des violations, une exception peut être levée.
+
+Exemple d’utilisation
+---------------------
+    policy = SelfDevPolicy.load_from_yaml_text(open("self_dev_policy.yaml").read())
+    ok, violations = policy.evaluate_patch(
+        pb,
+        diff_stats,
+        branch_name="archcode-self/2025-08-12"
+    )
+    if not ok and policy.mode == "enforce":
+        raise RuntimeError("\n".join(violations))
+"""
 
 class DiffStats(Protocol):
     """Contrat minimal attendu par la policy (à fournir par l’adaptateur Git/FS)."""

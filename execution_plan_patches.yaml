@@ -1,0 +1,55 @@
+execution_plan_id: EP-20250812-PATCHES
+modules:
+  - module: demo_markers
+    plan_lines:
+      # Patch 1 : création (avec marqueurs) dans demos/hello_with_markers.py
+      - plan_line_id: PL-1001
+        file: demos/hello_with_markers.py
+        op: create
+        role: service
+        target_symbol: hello_block
+        signature: "def hello_block(name: str) -> str:"
+        acceptance:
+          - "retourne une chaîne"
+          - "raise NotImplementedError par défaut"
+        constraints:
+          docstring: google
+          typing: strict
+        markers:
+          begin: "# <ARCH:BEGIN hello_block>"
+          end:   "# <ARCH:END hello_block>"
+        description: "Pose les marqueurs + squelette de fonction"
+
+      # Patch 2 : modification ciblée ENTRE marqueurs (idempotent)
+      - plan_line_id: PL-1002
+        file: demos/hello_with_markers.py
+        op: modify
+        role: service
+        target_symbol: hello_block
+        signature: "def hello_block(name: str) -> str:"
+        acceptance:
+          - "retourne 'Hello, <name>!'"
+          - "ne modifie rien hors des marqueurs"
+        constraints:
+          docstring: google
+          typing: strict
+        markers:
+          begin: "# <ARCH:BEGIN hello_block>"
+          end:   "# <ARCH:END hello_block>"
+        depends_on: ["PL-1001"]
+        description: "Remplace le bloc entre marqueurs par une implémentation simple"
+
+      # Patch 3 : un deuxième pattern — DTO minimal
+      - plan_line_id: PL-1003
+        file: demos/dto_demo.py
+        op: create
+        role: dto
+        target_symbol: make_user_dto
+        signature: "def make_user_dto(**data) -> dict:"
+        acceptance:
+          - "retourne un dict"
+          - "reste exécutable sans dépendances"
+        constraints:
+          docstring: numpy
+          typing: strict
+        description: "DTO minimal (retourne un dict vide par défaut)"

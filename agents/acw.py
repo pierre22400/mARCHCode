@@ -2,52 +2,27 @@
 from __future__ import annotations
 
 """
-agent_code_writer (ACW) — mARCHCode / Phase 3 (MVP aligné ACWP)
+agent_code_writer (ACW) — mARCHCode / Phase 3 (MVP aligned ACWP)
 ================================================================
-Rôle
-----
+Rôle du module
+--------------
 Consommer une `writer_task` produite par ACWP et émettre un `PatchBlock`
 balisé (`#{begin_meta: ...}` ... `#{end_meta}`) prêt pour les checkers.
 
 Nouveautés (sécurité douce & idempotence orientée FS)
------------------------------------------------------
+----------------------------------------------------
 - Support des marqueurs optionnels (writer_task.markers.begin/end).
 - Hints d’idempotence pour l’adaptateur FS :
   • insertion des lignes de marqueurs autour du code si fournis
   • calcul d’un `payload_hash` (SHA-256 court) inséré dans la meta inline
   • traces dans `history` : fs_intent=markers|fullfile + payload_hash=...
 
-L’adaptateur FS décidera au moment d’écrire :
-  - insert/replace entre marqueurs si le bloc existe et diffère
-  - skip si le bloc existe déjà et que les contenus sont identiques
-  - full file write si aucun marqueur n’est fourni
-
-Entrée (writer_task : Dict) — champs clés (ACWP)
-------------------------------------------------
-- task_id: str
-- plan_line_id: str
-- file: str (.py)
-- role: str
-- op: "create" | "modify"
-- target_symbol: str
-- signature: str
-- path: Optional[str]
-- allow_create: bool
-- markers: Dict[str,str]   # {"begin": "...", "end": "..."}  (optionnel)
-- depends_on: List[str]
-- acceptance: List[str]
-- constraints: Dict[str, Any]
-- plan_line_ref: Optional[str]
-- intent_fingerprint: Optional[str]
-- writer_prompt: str
-- writer_prompt_yaml: str
-- execution_context: Dict[str,Any]
-- bus_message_id: Optional[str]
-
-Sortie
-------
-PatchBlock(code=..., meta=MetaBlock(...))
-- ACW ne fixe PAS global_status / next_action (ModuleChecker s’en charge).
+Contrats & limites (MVP)
+------------------------
+- ACW NE FIXE PAS `pb.global_status` / `pb.next_action`. ModuleChecker s’en occupe.
+- ACW doit rester déterministe : pas d’appels réseau ni d’effets de bord.
+- Le champ `archcode_context` (si présent) est injecté dans la writer_task
+  pour fournir du contexte global (doc, contraintes, règles) au générateur.
 """
 
 from typing import Any, Dict, List, Optional
@@ -55,6 +30,19 @@ from textwrap import indent
 import hashlib
 
 from core.types import PatchBlock, MetaBlock, now_iso
+from core.context_loader import load_context_snapshot  # injection du contexte global
+
+# Bannière pédagogique — agent_code_writer (après imports)
+"""
+Rôle : transformer une writer_task (dict produit par ACWP) en PatchBlock
+       exécutable et traçable, prêt pour les checkers.
+Entrées : writer_task (dict) — champs minimaux : plan_line_id, file, role, signature
+Sorties : PatchBlock (code + meta + history)
+Notes :
+  - Le loader de contexte charge config/context_snapshot.yaml si présent.
+  - Le context est inclus dans writer_task["archcode_context"] (dict).
+  - Une version textuelle résumée est fournie dans writer_task["archcode_context_text"].
+"""
 
 _BEGIN = "#"+"{begin_meta:"
 _END   = "#{end_meta}"
@@ -64,6 +52,7 @@ _END   = "#{end_meta}"
 
 def _infer_module(file_path: str) -> str:
     return file_path.split("/")[0] if "/" in file_path else "module"
+
 
 def _normalize_signature(sig: str) -> str:
     """
@@ -77,11 +66,13 @@ def _normalize_signature(sig: str) -> str:
         return s + ":"
     return f"# Signature non exécutable fournie par le plan: {s}"
 
+
 def _choose_docstring_style(constraints: Dict[str, Any]) -> str:
     style = str(constraints.get("docstring", "") or "").lower()
     if style in ("google", "numpy", "rst"):
         return style
     return "google"  # défaut lisible
+
 
 def _render_docstring(role: str, acceptance: List[str], style: str, path: Optional[str]) -> str:
     checklist = "\n".join([f"- {a}" for a in acceptance]) if acceptance else "- (aucun)"
@@ -97,6 +88,7 @@ def _render_docstring(role: str, acceptance: List[str], style: str, path: Option
     # google (défaut)
     return f'"""mARCHCode/ACW\n{body}\n"""'
 
+
 def _body_from_role(role: str, acceptance: List[str], constraints: Dict[str, Any], path: Optional[str]) -> str:
     style = _choose_docstring_style(constraints)
     doc = _render_docstring((role or "").lower(), acceptance, style, path)
@@ -106,6 +98,7 @@ def _body_from_role(role: str, acceptance: List[str], constraints: Dict[str, Any
         return f"{doc}\n    # TODO: compléter la structure DTO\n    return {{}}"
     # Autres rôles : on force un NotImplementedError (exécutable et clair)
     return f"{doc}\n    # TODO: implémenter la logique métier\n    raise NotImplementedError('À implémenter par itération suivante')"
+
 
 def _prelude_from_constraints(constraints: Dict[str, Any]) -> List[str]:
     """
@@ -121,6 +114,7 @@ def _prelude_from_constraints(constraints: Dict[str, Any]) -> List[str]:
         prelude.append("# isort: on")
     return prelude
 
+
 def _validate_writer_task(task: Dict[str, Any]) -> None:
     required = ["plan_line_id", "file", "role", "signature"]
     for k in required:
@@ -129,8 +123,10 @@ def _validate_writer_task(task: Dict[str, Any]) -> None:
     if not str(task.get("file")).endswith(".py"):
         raise ValueError("writer_task invalide: 'file' doit cibler un .py")
 
+
 def _hash_payload(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+
 
 def _render_meta_inline(meta: Dict[str, Any]) -> str:
     """
@@ -264,8 +260,14 @@ def write_code(writer_task: Dict[str, Any]) -> PatchBlock:
         pb.append_history("writer_prompt: present")
     if writer_task.get("writer_prompt_yaml"):
         pb.append_history("writer_prompt_yaml: present")
+    # trace context presence (dict and/or text)
+    if writer_task.get("archcode_context"):
+        pb.append_history("archcode_context: present")
+    if writer_task.get("archcode_context_text"):
+        pb.append_history("archcode_context_text: present")
 
     return pb
+
 
 def run_acw(pl, writer_prompt: str) -> PatchBlock:
     """
@@ -278,6 +280,20 @@ def run_acw(pl, writer_prompt: str) -> PatchBlock:
 
     Les autres champs sont passés tels quels si présents (tolérance MVP).
     """
+    # Tentative d'injection du contexte global (best-effort)
+    try:
+        arch_context = load_context_snapshot()
+    except Exception:
+        arch_context = {}
+
+    # Tentative best-effort pour générer une version textuelle compacte du contexte.
+    # On importe localement pour que l'absence du module context_formatter ne casse rien.
+    try:
+        from core.context_formatter import normalize_context_for_prompt  # type: ignore
+        arch_context_text = normalize_context_for_prompt(arch_context)
+    except Exception:
+        arch_context_text = ""
+
     # Sécurisation minimale des champs obligatoires
     writer_task: Dict[str, Any] = {
         "task_id": f"TASK-{pl.plan_line_id}",
@@ -295,6 +311,9 @@ def run_acw(pl, writer_prompt: str) -> PatchBlock:
         "writer_prompt_yaml": writer_prompt,
         "execution_context": {},
         "bus_message_id": "BUS-UNKNOWN",
+        "archcode_context": arch_context,                 # dict raw
+        "archcode_context_text": arch_context_text,      # texte synthétisé (peut être "")
+        "writer_prompt_with_context": (writer_prompt + "\n\nCONTEXT:\n" + arch_context_text) if arch_context_text else writer_prompt,
     }
 
     # Champs optionnels si présents sur la PlanLine

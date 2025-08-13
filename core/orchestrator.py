@@ -16,40 +16,45 @@ from core.archiver import (
     append_console_log,
 )
 from core.error_policy import ErrorCategory, map_error_to_next_action  # <-- ajout
+"""
+Orchestrator — Exécution locale de la phase 3 (MVP mARCHCode)
+=============================================================
 
-# ------------------------------------------------------------
-# Orchestrator — Exécution locale de la phase 3 (MVP mARCHCode)
-# ------------------------------------------------------------
-# Rôle du fichier :
-#   Offrir un point d’entrée unique pour :
-#     1) Vérifier un PatchBlock via les deux checkers
-#     2) Décider APPLY / RETRY / ROLLBACK
-#     3) Exécuter l’action choisie via des adaptateurs (FS, LLM, logs)
-#
-# Entrée :
-#   - PatchBlock (produit par agent_code_writer)
-#   - Adapters (callbacks) pour appliquer/committer, régénérer ou rollback
-#   - (Optionnel) Reasoner basse conso pour mapper/normaliser les “raisons”
-#
-# Sorties :
-#   - (PatchBlock annoté, Decision)
-#
-# Contrats :
-#   - Ne modifie jamais la logique des checkers ; délègue au router la décision.
-#   - Les adaptateurs sont injectés (inversion de dépendance) : ce module
-#     n’écrit pas directement sur disque, ne parle pas à Git, ni au LLM.
-#
-# Schéma :
-#     PatchBlock → verify_and_route → Decision
-#         └── Action.APPLY    → adapters.apply_and_commit
-#         └── Action.RETRY    → adapters.regenerate_with_acw
-#         └── Action.ROLLBACK → adapters.rollback_and_log
-#
-# Exemple d’intégration (pseudo-runner Typer) :
-#   adapters = DefaultConsoleAdapters()
-#   pb, decision = run_patch_local(pb, adapters)
-#   print(decision.summary)
-# ------------------------------------------------------------
+Rôle du module
+--------------
+Offrir un point d’entrée unique pour :
+  1) Vérifier un PatchBlock via les deux checkers
+  2) Décider APPLY / RETRY / ROLLBACK
+  3) Exécuter l’action choisie via des adaptateurs (FS, LLM, logs)
+
+Entrées / Sorties
+-----------------
+Entrées :
+  - PatchBlock produit par agent_code_writer
+  - Adapters (callbacks) pour appliquer/committer, régénérer ou rollback
+  - (Optionnel) Reasoner basse conso pour mapper/normaliser les “raisons”
+Sorties :
+  - Tuple (PatchBlock annoté, Decision)
+
+Contrats respectés
+------------------
+- Ne modifie jamais la logique des checkers ; délègue au router la décision.
+- Les adaptateurs sont injectés (inversion de dépendance) : ce module n’écrit pas directement sur disque, ne parle pas à Git, ni au LLM.
+
+Schéma d’exécution
+------------------
+PatchBlock → verify_and_route → Decision
+    ├── Action.APPLY    → adapters.apply_and_commit
+    ├── Action.RETRY    → adapters.regenerate_with_acw
+    └── Action.ROLLBACK → adapters.rollback_and_log
+
+Notes d’implémentation
+----------------------
+- Exemple d’intégration (pseudo-runner Typer) :
+    adapters = DefaultConsoleAdapters()
+    pb, decision = run_patch_local(pb, adapters)
+    print(decision.summary)
+"""
 
 
 # ------------------------- Interfaces -------------------------

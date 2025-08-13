@@ -3,33 +3,44 @@ from __future__ import annotations
 
 from typing import Tuple, List, Dict, Optional
 from core.types import PatchBlock
+"""
+Agent ModuleChecker — V2 (mARCHCode / Phase 3)
+==============================================
 
-# ------------------------------------------------------------
-# Agent ModuleChecker — V2 (mARCHCode / Phase 3)
-# ------------------------------------------------------------
-# Rôle :
-#   - Prendre un PatchBlock (déjà passé par FileChecker)
-#   - Émettre la décision GLOBALE de module pour ce patch :
-#       * pb.global_status ∈ {"ok","partial_ok","rejected"}
-#       * pb.next_action  ∈ {"accept","retry","rollback"}
-#   - Annoter pb.meta.comment_agent_module_checker (reasons/strategy/comment)
-#
-# Stratégie V2 :
-#   1) HEURISTIQUE OFFLINE (sans LLM) — sûre et déterministe :
-#        - s’appuie sur status_agent_file_checker
-#        - détecte présence de 'def ' (bloc plausible), et le rôle
-#        - produit (status, next_action, reasons, strategy, comment, reassess?, reco)
-#   2) MODE LLM (futur) :
-#        - _build_modulecheck_prompt → _call_llm → parsing KV
-#        - aujourd’hui, on préfère l’heuristique (fallback LLM conservé)
-#
-# Pare-feu plan (inchangé) :
-#   - review_execution_plan(ep_text) renvoie PLAN_OK etc. (MVP simple)
-#
-# Artefact complémentaire :
-#   - module_reassessment_request.yaml injecté en clair dans le commentaire
-#     si MODULE_REASSESSMENT=yes (ex. module flou, rôle contradictoire…)
-# ------------------------------------------------------------
+Rôle du module
+--------------
+Prendre un PatchBlock (déjà passé par FileChecker) et émettre la décision GLOBALE
+de module pour ce patch :
+  - pb.global_status ∈ {"ok", "partial_ok", "rejected"}
+  - pb.next_action ∈ {"accept", "retry", "rollback"}
+Annoter également pb.meta.comment_agent_module_checker avec reasons / strategy / comment.
+
+Entrées / Sorties
+-----------------
+Entrées :
+  - PatchBlock issu du FileChecker
+  - Métadonnées internes au PatchBlock
+Sorties :
+  - Mise à jour de pb.global_status et pb.next_action
+  - Renseignement de pb.meta.comment_agent_module_checker
+  - (Option) module_reassessment_request.yaml si MODULE_REASSESSMENT = yes
+
+Stratégie V2
+------------
+1) Heuristique offline (sans LLM) — sûre et déterministe :
+     - s’appuie sur status_agent_file_checker
+     - détecte la présence de `def ` (bloc plausible) et le rôle
+     - produit (status, next_action, reasons, strategy, comment, reassess?, reco)
+2) Mode LLM (futur) :
+     - _build_modulecheck_prompt → _call_llm → parsing KV
+     - aujourd’hui, on privilégie l’heuristique (fallback LLM conservé)
+
+Contrats respectés
+------------------
+- Pare-feu plan (review_execution_plan) inchangé : renvoie PLAN_OK, etc. (MVP simple)
+- Artefact complémentaire : module_reassessment_request.yaml injecté en clair dans le commentaire si MODULE_REASSESSMENT = yes
+"""
+
 
 _ALLOWED_STATUS = {"ok", "partial_ok", "rejected"}
 _ALLOWED_NEXT   = {"accept", "retry", "rollback"}

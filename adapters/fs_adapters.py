@@ -18,40 +18,42 @@ from core.orchestrator import (
     Decision,
     Reasoner,
 )
+"""
+FSAdapters (File System Adapters) — Application locale des PatchBlocks (MVP)
+============================================================================
 
-# ------------------------------------------------------------
-# FSAdapters (File Systeme Adapters) — Application locale des PatchBlocks (MVP)
-# ------------------------------------------------------------
-# Rôle du fichier :
-#   Offrir des adaptateurs concrets pour :
-#     1) APPLY    → écrire/mettre à jour un bloc meta dans un fichier cible
-#     2) RETRY    → journaliser une demande de régénération (file locale)
-#     3) ROLLBACK → retirer le bloc meta du fichier + tracer dans rollback_bundle
-#
-# Entrées :
-#   - PatchBlock (pb.code contient déjà le bloc complet avec #{begin_meta: ...} ... #{end_meta})
-#   - pb.meta.file (chemin relatif du fichier cible)
-#   - pb.meta.plan_line_id (ancre de remplacement/suppression si présente dans le bloc)
-#
-# Sorties :
-#   - Écritures dans le FS projet :
-#       * création/maj du fichier cible
-#       * logs sous ./var/
-#
-# Hypothèses MVP :
-#   - Le bloc à insérer/remplacer est parfaitement délimité par
-#         '#{begin_meta:'  ...  '#{end_meta}'
-#   - Si un bloc existant contenant le même plan_line_id est trouvé,
-#     il est remplacé in situ ; sinon il est ajouté en fin de fichier.
-#   - Aucune dépendance Git ici (commit simulable plus tard).
-#
-# Points d’attention :
-#   - Pas de modification de pb.global_status / pb.next_action (décidé en amont).
-#   - Pas d’interaction LLM ici ; le Reasoner n’est utilisé qu’en RETRY pour log.
-# ------------------------------------------------------------
+Rôle du module
+--------------
+Offrir des adaptateurs concrets pour :
+  1) APPLY    → écrire/mettre à jour un bloc meta dans un fichier cible
+  2) RETRY    → journaliser une demande de régénération (file locale)
+  3) ROLLBACK → retirer le bloc meta du fichier + tracer dans rollback_bundle
 
-_BEGIN = "#"+"{begin_meta:"
-_END   = "#{end_meta}"
+Entrées / Sorties
+-----------------
+Entrées :
+  - PatchBlock (pb.code contient déjà le bloc complet avec #{begin_meta: ...} ... #{end_meta})
+  - pb.meta.file (chemin relatif du fichier cible)
+  - pb.meta.plan_line_id (ancre de remplacement/suppression si présente dans le bloc)
+Sorties :
+  - Écritures dans le FS projet :
+      * création/maj du fichier cible
+      * logs sous ./var/
+
+Hypothèses MVP
+--------------
+- Le bloc à insérer/remplacer est parfaitement délimité par :
+      '#{begin_meta:'  ...  '#{end_meta}'
+- Si un bloc existant contenant le même plan_line_id est trouvé,
+  il est remplacé in situ ; sinon il est ajouté en fin de fichier.
+- Aucune dépendance Git ici (commit simulable plus tard).
+
+Contrats respectés
+------------------
+- Pas de modification de pb.global_status / pb.next_action (décidé en amont).
+- Pas d’interaction LLM ici ; le Reasoner n’est utilisé qu’en RETRY pour log.
+"""
+
 
 # ---------- Helpers bas niveau (FS + recherche de blocs) ----------
 

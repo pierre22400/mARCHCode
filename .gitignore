@@ -13,3 +13,5 @@ venv/
 dist/
 build/
 *.tar.gz
+
+!.archcode/context_snapshots/
