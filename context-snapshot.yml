@@ -36,12 +36,13 @@ jobs:
       - name: Run snapshot
         run: python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
 
-      - name: Commit snapshot
+      - name: Commit snapshot (force add)
         run: |
           git config user.name "archcode-bot"
           git config user.email "archcode-bot@users.noreply.github.com"
-          git add .archcode/context_snapshot.yaml scripts/context_snapshot.py
-          git commit -m "update context snapshot" || echo "No changes"
+          git add -f .archcode/context_snapshot.yaml scripts/context_snapshot.py
+          git commit -m "update context snapshot [force]" || echo "No changes to commit"
+          git pull --rebase origin main
           git push origin main
 
           # scripts/context_snapshot.py
