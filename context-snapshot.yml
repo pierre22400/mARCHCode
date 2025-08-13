@@ -234,13 +234,22 @@ jobs:
               raise SystemExit(main(sys.argv[1:]))
           PY
 
+
       - name: Run snapshot
         run: |
-          mkdir -p .archcode
           python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
           test -f .archcode/context_snapshot.yaml || (echo "Fichier non généré !" && exit 1)
 
-      - name: Commit snapshot directly to main
+      # 1) Toujours récupérable dans l'onglet Actions → Artifacts
+      - name: Upload context as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: context_snapshot
+          path: .archcode/context_snapshot.yaml
+          if-no-files-found: error
+
+      # 2) Push direct sur main (échoue proprement si main est protégé)
+      - name: Commit snapshot to main
         run: |
           set -e
           git config user.name "archcode-bot"
@@ -252,5 +261,5 @@ jobs:
             echo "No changes to commit."
           else
             git commit -m "chore(context): refresh context_snapshot.yaml"
-            git push origin main
+            git push origin main || echo "::warning::Push vers main refusé (branche protégée). Le fichier reste disponible en Artifacts."
           fi
