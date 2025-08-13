@@ -36,7 +36,7 @@ jobs:
           - Génère .archcode/context_snapshot.yaml
           - Remplit 'project' avec fallback (GITHUB_REPOSITORY puis basename)
           """
-          import ast, sys, os, platform, yaml, html
+          import ast, sys, os, platform, yaml
           from dataclasses import dataclass
           from pathlib import Path
           from typing import Any, Dict, List, Optional, Union
@@ -246,7 +246,7 @@ jobs:
           python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
           test -f .archcode/context_snapshot.yaml || (echo "Fichier non généré !" && exit 1)
 
-      - name: Generate tiddler HTML from YAML
+      - name: Generate tiddler HTML from YAML (no truncation, with errors & routes)
         shell: bash
         run: |
           python - <<'PY'
@@ -256,48 +256,94 @@ jobs:
           out = Path(".archcode/context_snapshot_tiddler.html")
           if not p.exists():
               print("No snapshot YAML found", file=sys.stderr); raise SystemExit(2)
+
           s = yaml.safe_load(p.read_text(encoding="utf-8"))
-          meta = s.get("snapshot", {})
-          proj = html.escape(meta.get("project",""))
+          meta = s.get("snapshot", {}) or {}
+          proj = html.escape(meta.get("project") or "")
+
           css = """
           <style>
-            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.4;padding:16px;background:#fafafa;color:#222}
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;padding:16px;background:#fafafa;color:#222}
             h1{margin:.2em 0 .4em}
+            h2{margin:.6em 0 .3em}
             .box{background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:12px;margin:10px 0}
             pre{white-space:pre-wrap;overflow:auto;background:#f7f7f7;border:1px solid #eee;border-radius:6px;padding:8px}
             .meta li{margin:2px 0}
             details{margin:6px 0}
             summary{cursor:pointer;font-weight:600}
             code.small{font-size:.9em}
+            .badge{display:inline-block;padding:0 6px;border-radius:4px;border:1px solid #ccc;font-size:.75em;margin-left:6px}
+            .badge.error{background:#fee;border-color:#f99;color:#900}
+            .error{background:#fff5f5;border:1px solid #f5c2c7;border-radius:6px;padding:8px;margin:8px 0}
+            .muted{color:#666}
           </style>
           """
+
           parts = [f"<html><head><meta charset='utf-8'><title>Context Snapshot — {proj}</title>{css}</head><body>"]
-          parts.append(f"<h1>Context Snapshot — {proj}</h1>")
+          parts.append(f"<h1>Context Snapshot — {proj or '—'}</h1>")
+
+          # metadata
           parts.append("<div class='box'><h2>Métadonnées</h2><ul class='meta'>")
-          for k in ("root","generated_at","python","platform","files_count","py_files_count"):
-              parts.append(f"<li><strong>{html.escape(str(k))}</strong>: {html.escape(str(meta.get(k,'')))}</li>")
+          for k in ("root","generated_at","python","platform","files_count","py_files_count","ignored_dirs"):
+              v = meta.get(k, "")
+              if isinstance(v, (list, tuple)): v = ", ".join(map(str, v))
+              parts.append(f"<li><strong>{html.escape(str(k))}</strong>: {html.escape(str(v))}</li>")
           parts.append("</ul></div>")
+
+          # tree
           parts.append("<div class='box'><h2>Arbre du projet</h2><pre>")
           parts.append(html.escape(s.get("tree","")))
           parts.append("</pre></div>")
-          parts.append("<div class='box'><h2>Fichiers (aperçu)</h2>")
-          for f in s.get("files", []):
-              rel = html.escape(f.get("relpath", f.get("path","")))
-              parts.append(f"<details><summary>{rel}</summary>")
+
+          # files
+          files = s.get("files", []) or []
+          parts.append(f"<div class='box'><h2>Fichiers ({len(files)})</h2>")
+          for f in files:
+              rel = f.get("relpath") or f.get("path") or ""
+              rel_e = html.escape(rel)
+              defs = f.get("defs") or []
+              ndefs = len(defs)
+              err = f.get("error")
+              err_badge = " <span class='badge error'>parse error</span>" if err else ""
+              parts.append(f"<details><summary>{rel_e} — {ndefs} defs{err_badge}</summary>")
+
+              if err:
+                  parts.append(f"<div class='error'><strong>Erreur de parsing</strong><br><code>{html.escape(str(err))}</code></div>")
+
               if f.get("banner"):
-                  parts.append("<div><strong>Banner</strong><pre>"+html.escape(f.get("banner"))+"</pre></div>")
+                  parts.append("<div><strong>Banner</strong><pre>"+html.escape(str(f.get("banner")))+"</pre></div>")
               if f.get("module_docstring"):
-                  parts.append("<div><strong>Docstring module</strong><pre>"+html.escape(f.get("module_docstring"))+"</pre></div>")
-              if f.get("defs"):
-                  parts.append("<div><strong>Defs (max 20)</strong><ul>")
-                  for d in f["defs"][:20]:
-                      q = html.escape(d.get("qualname",""))
-                      ln = html.escape(str(d.get("lineno","")))
-                      ds = html.escape((d.get("docstring") or "").strip().splitlines()[0] if d.get("docstring") else "")
-                      parts.append(f"<li><code class='small'>{q}</code> (line {ln}) — {ds}</li>")
+                  parts.append("<div><strong>Docstring module</strong><pre>"+html.escape(str(f.get("module_docstring")))+"</pre></div>")
+
+              if defs:
+                  parts.append(f"<div><strong>Defs ({ndefs})</strong><ul>")
+                  for d in defs:  # pas de limite: tout est affiché
+                      q = d.get("qualname","")
+                      ln = d.get("lineno","")
+                      params = d.get("params") or []
+                      sig = f"{d.get('name','')}(" + ", ".join(params) + ")"
+                      route = d.get("route")
+                      route_txt = ""
+                      if isinstance(route, dict):
+                          method = route.get("method")
+                          if isinstance(method, list): method = ",".join(method)
+                          path = route.get("path") or ""
+                          route_txt = f" <span class='muted'>[{html.escape(str(route.get('framework') or ''))} {html.escape(str(method or ''))} {html.escape(str(path))}]</span>"
+
+                      ds_full = (d.get("docstring") or "").strip()
+                      ds_first = ds_full.splitlines()[0] if ds_full else ""
+                      li = f"<li><code class='small'>{html.escape(q)}</code> (line {html.escape(str(ln))}) — <code class='small'>{html.escape(sig)}</code>{route_txt}"
+                      if ds_first:
+                          li += f" — {html.escape(ds_first)}"
+                      if ds_full and (("\n" in ds_full) or (len(ds_full) > len(ds_first))):
+                          li += f"<details><summary>docstring complète</summary><pre>{html.escape(ds_full)}</pre></details>"
+                      li += "</li>"
+                      parts.append(li)
                   parts.append("</ul></div>")
               parts.append("</details>")
-          parts.append("</div></body></html>")
+          parts.append("</div>")  # end box files
+
+          parts.append("</body></html>")
           out.write_text("\n".join(parts), encoding="utf-8")
           print("Wrote tiddler to", out)
           PY
@@ -308,9 +354,9 @@ jobs:
           echo "=== .archcode listing ==="
           ls -la .archcode || true
           echo "=== head .archcode/context_snapshot.yaml ==="
-          head -n 15 .archcode/context_snapshot.yaml || true
+          head -n 20 .archcode/context_snapshot.yaml || true
           echo "=== head .archcode/context_snapshot_tiddler.html ==="
-          head -n 10 .archcode/context_snapshot_tiddler.html || true
+          head -n 20 .archcode/context_snapshot_tiddler.html || true
 
       - name: Upload artifact (YAML + Tiddler)
         uses: actions/upload-artifact@v4
