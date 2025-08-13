@@ -1,0 +1,109 @@
+name: CI — Validate banners & docstrings
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate banners & docstrings (script)
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+          """
+          validate_docstrings.py — Vérification simple des bannières / docstrings
+          ===================================================================
+          Ce script parcourt les fichiers .py (hors dossiers ignorés) et vérifie :
+            - pas d'erreur de parsing (SyntaxError)
+            - présence d'une docstring module OU d'une bannière de commentaires initiale
+            - fonctions/classes publiques (sans '_' préfixe) disposent d'une docstring
+          Retourne 0 si tout est OK, 2 si problèmes détectés.
+          """
+          import ast, sys, os
+          from pathlib import Path
+          IGNORED_DIRS = {".git","__pycache__",".venv","venv",".env",".mypy_cache",".pytest_cache","node_modules",".idea",".vscode",".arch_runs",".archcode/archive"}
+
+          def iter_py_files(root: Path):
+              for p in sorted(root.rglob("*.py")):
+                  try:
+                      rel = p.relative_to(root)
+                  except Exception:
+                      continue
+                  if any(seg in IGNORED_DIRS for seg in rel.parts):
+                      continue
+                  yield p
+
+          def banner_in_comments(text: str) -> bool:
+              # collecte les commentaires initiaux consécutifs (ignorer shebang / encodings)
+              lines = text.splitlines()
+              comment_lines = []
+              for ln in lines:
+                  s = ln.strip()
+                  if not s:
+                      if comment_lines:
+                          break
+                      else:
+                          continue
+                  if s.startswith("#!"):  # shebang
+                      continue
+                  if s.startswith("# -*-") or s.startswith("# coding:"):
+                      continue
+                  if s.startswith("#"):
+                      comment_lines.append(s.lstrip("# ").rstrip())
+                      continue
+                  break
+              return len(comment_lines) > 0
+
+          root = Path.cwd()
+          failures = []
+          total = 0
+
+          for py in iter_py_files(root):
+              total += 1
+              text = py.read_text(encoding="utf-8", errors="ignore")
+              try:
+                  mod = ast.parse(text)
+              except SyntaxError as e:
+                  failures.append(f"{py}: SyntaxError: {e}")
+                  continue
+
+              # module docstring or banner?
+              mod_doc = ast.get_docstring(mod)
+              has_banner = bool(mod_doc) or banner_in_comments(text)
+              if not has_banner:
+                  failures.append(f"{py}: missing module docstring or banner")
+
+              # check public defs/classes for docstrings
+              for node in mod.body:
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                      name = getattr(node, "name", "<anon>")
+                      if name.startswith("_"):
+                          continue
+                      ds = ast.get_docstring(node)
+                      if not ds:
+                          failures.append(f"{py}: public symbol '{name}' missing docstring")
+
+          if failures:
+              print("=== Validation échouée — problèmes détectés ===", file=sys.stderr)
+              for f in failures:
+                  print(f"- {f}", file=sys.stderr)
+              print(f"\nTotal fichiers scannés: {total}; problèmes: {len(failures)}", file=sys.stderr)
+              sys.exit(2)
+          else:
+              print(f"OK — {total} fichiers Python scannés. Bannières/docstrings présentes.")
+              sys.exit(0)
+          PY
