@@ -1,5 +1,14 @@
 test_smoke_phase3.py
 
+
+
+import tempfile
+import subprocess
+from pathlib import Path
+from core.types import PatchBlock, PatchMeta
+from core.orchestrator import run_patch_local, DefaultConsoleAdapters
+from core.decision_router import Decision, Action
+
 """
 ============================================================
 Golden Test e2e (Small) — mARCHCode Phase 3
@@ -23,14 +32,11 @@ Peut détecter qu’un fichier a été créé (en APPLY).
 -----
 pytest -s tests/test_smoke_phase3.py
 """
-
-import tempfile
-import subprocess
-from pathlib import Path
-from core.types import PatchBlock, PatchMeta
-from core.orchestrator import run_patch_local, DefaultConsoleAdapters
-from core.decision_router import Decision, Action
-
+"""
+Tests end-to-end pour la phase 3 de mARCHCode.
+Permet de vérifier que la génération et l’application des patchs
+fonctionnent sur un scénario réduit.
+"""
 
 def init_temp_repo() -> Path:
     """Crée un repo Git temporaire."""
@@ -55,6 +61,7 @@ def make_dummy_patch(repo_dir: Path) -> PatchBlock:
 
 
 def test_e2e_small():
+     """Teste un petit scénario e2e sur la phase 3."""
     repo_dir = init_temp_repo()
     pb = make_dummy_patch(repo_dir)
 
