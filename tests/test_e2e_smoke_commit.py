@@ -62,10 +62,12 @@ def _init_repo() -> Path:
 # --------------- adaptateurs réels (écriture + commit git) ---------------
 
 class ApplyAndCommit(Protocol):
+    """Protocol pour appliquer un PatchBlock et effectuer un commit Git."""
     def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
 
 
 class RegenerateWithACW(Protocol):
+    """Protocol pour régénérer un PatchBlock via ACW (re-génération automatisée)."""
     def __call__(
         self,
         pb: PatchBlock,
@@ -75,11 +77,13 @@ class RegenerateWithACW(Protocol):
 
 
 class RollbackAndLog(Protocol):
+    """Protocol pour effectuer un rollback local et journaliser l'opération."""
     def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
 
 
 @dataclass
 class RealGitAdapters(OrchestrationAdapters):
+    """Adapter réel pour tester l’intégration Git dans les scénarios end-to-end."""
     repo_root: Path
 
     def __init__(self, repo_root: Path) -> None:
@@ -166,6 +170,7 @@ def _make_minimal_pb() -> PatchBlock:
 # --------------------------------- test ----------------------------------
 
 def test_e2e_smoke_commit():
+    """Teste le scénario e2e minimal avec commit Git simulé."""
     repo = _init_repo()
     adapters = RealGitAdapters(repo_root=repo)
     pb = _make_minimal_pb()
@@ -192,4 +197,3 @@ def test_e2e_smoke_commit():
     assert target.exists(), f"file not found: {target}"
     sha = _last_commit_sha(repo)
     assert len(sha) >= 7, "commit SHA manquant ou invalide"
-
