@@ -1,4 +1,3 @@
-
 # adapters/git_adapter.py
 from __future__ import annotations
 
@@ -70,10 +69,12 @@ def _extract_constraints_summary(pb: PatchBlock) -> str:
     Petite heuristique: essaie d'extraire 2–3 contraintes visibles depuis meta.commentaires.
     (MVP: on scanne les commentaires des checkers pour des tokens connus)
     """
-    meta_text = " ".join([
-        pb.meta.comment_agent_file_checker or "",
-        pb.meta.comment_agent_module_checker or "",
-    ]).lower()
+    meta_text = " ".join(
+        [
+            pb.meta.comment_agent_file_checker or "",
+            pb.meta.comment_agent_module_checker or "",
+        ]
+    ).lower()
     tokens = []
     for key in ("pep8", "typing=strict", "isort", "google", "no bare except", "structlog"):
         if key in meta_text:
@@ -84,7 +85,7 @@ def _extract_constraints_summary(pb: PatchBlock) -> str:
 def build_commit_message(
     pb: PatchBlock,
     diff: Optional[DiffStatsData] = None,
-    extra_notes: str = ""
+    extra_notes: str = "",
 ) -> str:
     """
     Construit un message de commit conforme au modèle de la roadmap.
@@ -143,105 +144,132 @@ def write_patch_to_fs(pb: PatchBlock, *, repo_root: str) -> str:
     full.write_text(pb.code, encoding="utf-8")
     return str(full)
 
-@@
- def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
-     """
-     1) (option) Checkout/Crée la branche (skip si dry_run)
-     2) Écrit le fichier (MVP: full-write)
-     3) Calcule diffstats ciblés
-     4) (option) Commit (skip si dry_run)
-     5) (option) Push
 
-     Retour:
-       - commit SHA (str) si non dry-run,
-       - "DRY-RUN" si dry_run=True.
-     """
-     if not pb.meta.file:
-         raise ValueError("PatchBlock.meta.file est requis pour commit Git.")
-+
-+    from core.git_diffstats import _run_git  # réutilisation interne
-+
-+    # Capture HEAD actuel avant toute modification
-+    rc, out, err = _run_git(["rev-parse", "HEAD"], cwd=options.repo_root)
-+    if rc == 0:
-+        previous_sha = out.strip()
-+        pb.append_history(f"git:previous_sha={previous_sha}")
-+    else:
-+        previous_sha = None
-+        pb.append_history("git:previous_sha=UNKNOWN")
- 
-     # 1) branche (si non dry-run)
-     if not options.dry_run:
-         ensure_branch(options.branch_name, repo_root=options.repo_root)
-@@
-     # 4) commit / 5) push (si non dry-run)
-     if not options.dry_run:
-         sha = stage_and_commit([pb.meta.file], message, repo_root=options.repo_root)  # type: ignore[arg-type]
-+        pb.append_history(f"git:commit_sha={sha}")
-+        # Archive post-commit si on a un sha précédent
-+        if previous_sha:
-+            _archive_patch_post_commit(pb, previous_sha, sha, repo_root=options.repo_root)
-         if options.push:
-             optional_push(options.branch_name, repo_root=options.repo_root)
-         pb.meta.commit_sha = sha
-         return sha
-@@
- def rollback_file_changes(paths: Sequence[str], *, repo_root: str) -> None:
-     """
-     Rejette les changements non commités sur les chemins donnés.
-     """
-     from core.git_diffstats import _run_git  # reuse interne
-     if not paths:
-         return
-     rc, _, err = _run_git(["checkout", "--", *paths], cwd=repo_root)
-     if rc != 0:
-         print(f"[git rollback] {err}")
-+
-+
-+def safe_rollback_to_last_green(*, repo_root: str) -> None:
-+    """
-+    Reviens au dernier commit "green" connu.
-+    Hypothèse MVP :
-+      - un commit est "green" si un patch_post_commit archivé est présent
-+        (par ex. dans .archcode/archive/patch_post_commit_<sha>.tar.gz)
-+      - on utilise le SHA cible de cette archive pour faire un checkout forcé.
-+    """
-+    from core.git_diffstats import _run_git
-+    archive_dir = Path(repo_root) / ".archcode" / "archive"
-+    if not archive_dir.exists():
-+        print("[git rollback] Aucun archive_dir trouvé, rollback impossible.")
-+        return
-+    # On récupère la dernière archive par date
-+    archives = sorted(archive_dir.glob("patch_post_commit_*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
-+    if not archives:
-+        print("[git rollback] Aucune archive patch_post_commit trouvée.")
-+        return
-+    # SHA attendu dans le nom : patch_post_commit_<sha>.tar.gz
-+    last_sha = archives[0].stem.replace("patch_post_commit_", "")
-+    rc, _, err = _run_git(["checkout", last_sha], cwd=repo_root)
-+    if rc == 0:
-+        print(f"[git rollback] Retour au dernier commit green: {last_sha}")
-+    else:
-+        print(f"[git rollback] Échec rollback vers {last_sha}: {err}")
-+
-+
-+# --- Helpers internes ---
-+
-+def _archive_patch_post_commit(pb: PatchBlock, prev_sha: str, new_sha: str, *, repo_root: str) -> None:
-+    """
-+    Archive post-commit minimaliste pour rollback futur.
-+    (MVP) On crée un tar.gz du diff entre prev_sha et new_sha.
-+    """
-+    import tarfile
-+    archive_dir = Path(repo_root) / ".archcode" / "archive"
-+    archive_dir.mkdir(parents=True, exist_ok=True)
-+    archive_path = archive_dir / f"patch_post_commit_{new_sha}.tar.gz"
-+    # pour MVP on n'archive que le fichier modifié par pb
-+    full_file_path = Path(repo_root) / pb.meta.file
-+    with tarfile.open(archive_path, "w:gz") as tar:
-+        if full_file_path.exists():
-+            tar.add(full_file_path, arcname=pb.meta.file)
-+    pb.append_history(f"git:archive_patch_post_commit={archive_path}")
+def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
+    """
+    1) (option) Checkout/Crée la branche (skip si dry_run)
+    2) Écrit le fichier (MVP: full-write)
+    3) Calcule diffstats ciblés
+    4) (option) Commit (skip si dry_run)
+    5) (option) Push
+
+    Retour:
+      - commit SHA (str) si non dry-run,
+      - "DRY-RUN" si dry_run=True.
+    """
+    if not pb.meta.file:
+        raise ValueError("PatchBlock.meta.file est requis pour commit Git.")
+
+    from core.git_diffstats import _run_git  # réutilisation interne
+
+    # Capture HEAD actuel avant toute modification
+    rc, out, err = _run_git(["rev-parse", "HEAD"], cwd=options.repo_root)
+    if rc == 0:
+        previous_sha = out.strip()
+        if hasattr(pb, "append_history"):
+            pb.append_history(f"git:previous_sha={previous_sha}")
+    else:
+        previous_sha = None
+        if hasattr(pb, "append_history"):
+            pb.append_history("git:previous_sha=UNKNOWN")
+
+    # 1) branche (si non dry-run)
+    if not options.dry_run:
+        ensure_branch(options.branch_name, repo_root=options.repo_root)
+
+    # 2) write file
+    written_path = write_patch_to_fs(pb, repo_root=options.repo_root)
+
+    # 3) diffstats ciblés
+    diff = compute_diffstats_for_paths([pb.meta.file], repo_root=options.repo_root)
+
+    # build commit message
+    message = build_commit_message(pb, diff=diff)
+
+    # 4) commit / 5) push (si non dry-run)
+    if not options.dry_run:
+        sha = stage_and_commit([pb.meta.file], message, repo_root=options.repo_root)  # type: ignore[arg-type]
+        if hasattr(pb, "append_history"):
+            pb.append_history(f"git:commit_sha={sha}")
+        # Archive post-commit si on a un sha précédent
+        if previous_sha:
+            _archive_patch_post_commit(pb, previous_sha, sha, repo_root=options.repo_root)
+        if options.push:
+            optional_push(options.branch_name, repo_root=options.repo_root)
+        # inject commit sha dans meta
+        try:
+            pb.meta.commit_sha = sha
+        except Exception:
+            pass
+        return sha
+
+    # dry-run: on retourne un marqueur
+    return "DRY-RUN"
+
+
+def rollback_file_changes(paths: Sequence[str], *, repo_root: str) -> None:
+    """
+    Rejette les changements non commités sur les chemins donnés.
+    """
+    from core.git_diffstats import _run_git  # reuse interne
+    if not paths:
+        return
+    rc, _, err = _run_git(["checkout", "--", *paths], cwd=repo_root)
+    if rc != 0:
+        print(f"[git rollback] {err}")
+
+
+def safe_rollback_to_last_green(*, repo_root: str) -> None:
+    """
+    Reviens au dernier commit "green" connu.
+    Hypothèse MVP :
+      - un commit est "green" si un patch_post_commit archivé est présent
+        (par ex. dans .archcode/archive/patch_post_commit_<sha>.tar.gz)
+      - on utilise le SHA cible de cette archive pour faire un checkout forcé.
+    """
+    from core.git_diffstats import _run_git
+    archive_dir = Path(repo_root) / ".archcode" / "archive"
+    if not archive_dir.exists():
+        print("[git rollback] Aucun archive_dir trouvé, rollback impossible.")
+        return
+    # On récupère la dernière archive par date
+    archives = sorted(
+        archive_dir.glob("patch_post_commit_*.tar.gz"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not archives:
+        print("[git rollback] Aucune archive patch_post_commit trouvée.")
+        return
+    # SHA attendu dans le nom : patch_post_commit_<sha>.tar.gz
+    last_sha = archives[0].stem.replace("patch_post_commit_", "")
+    rc, _, err = _run_git(["checkout", last_sha], cwd=repo_root)
+    if rc == 0:
+        print(f"[git rollback] Retour au dernier commit green: {last_sha}")
+    else:
+        print(f"[git rollback] Échec rollback vers {last_sha}: {err}")
+
+
+# --- Helpers internes ---
+
+
+def _archive_patch_post_commit(pb: PatchBlock, prev_sha: str, new_sha: str, *, repo_root: str) -> None:
+    """
+    Archive post-commit minimaliste pour rollback futur.
+    (MVP) On crée un tar.gz du diff entre prev_sha et new_sha.
+    """
+    import tarfile
+
+    archive_dir = Path(repo_root) / ".archcode" / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / f"patch_post_commit_{new_sha}.tar.gz"
+    # pour MVP on n'archive que le fichier modifié par pb
+    full_file_path = Path(repo_root) / pb.meta.file
+    with tarfile.open(archive_path, "w:gz") as tar:
+        if full_file_path.exists():
+            tar.add(full_file_path, arcname=pb.meta.file)
+    if hasattr(pb, "append_history"):
+        pb.append_history(f"git:archive_patch_post_commit={archive_path}")
 
 
 def inject_commit_sha_into_meta(pb: PatchBlock, commit_sha: Optional[str]) -> None:
@@ -268,5 +296,3 @@ def inject_commit_sha_into_meta(pb: PatchBlock, commit_sha: Optional[str]) -> No
             pb.append_history(f"git_commit={commit_sha}")
     except Exception:
         pass
-
-
