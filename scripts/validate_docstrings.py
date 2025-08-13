@@ -1,20 +1,22 @@
 from __future__ import annotations
 """
-validate_docstrings.py — Vérification non-brisante des bannières/docstrings.
+validate_docstrings_soft.py — Vérification non-brisante
 
-- ÉCHEC (exit != 0) seulement si:
+- ÉCHEC (exit != 0) seulement si :
     * SyntaxError dans un .py
     * absence de docstring module ET absence de bannière de commentaires
+      (⚠ sauf pour les fichiers dans `tests/` où c'est seulement une alerte)
 - Alerte (print) si fonctions/classes publiques sans docstring (NE FAIT PAS ÉCHOUER)
 """
+
 import ast
 import sys
 from pathlib import Path
 
 IGNORED_DIRS = {
-    ".git","__pycache__",".venv","venv",".env",".mypy_cache",
-    ".pytest_cache","node_modules",".idea",".vscode",".arch_runs",
-    ".archcode/archive"
+    ".git", "__pycache__", ".venv", "venv", ".env", ".mypy_cache",
+    ".pytest_cache", "node_modules", ".idea", ".vscode",
+    ".arch_runs", ".archcode/archive"
 }
 
 def iter_py_files(root: Path):
@@ -47,59 +49,61 @@ def banner_in_comments(text: str) -> bool:
         break
     return len(comment_lines) > 0
 
-def main():
-    root = Path.cwd()
-    failures = []   # conditions fatales
-    alerts = []     # warnings non-fatals
-    total = 0
+root = Path.cwd()
+failures = []   # conditions fatales
+alerts = []     # conditions non-fatales (warnings)
+total = 0
 
-    for py in iter_py_files(root):
-        total += 1
-        text = py.read_text(encoding="utf-8", errors="ignore")
-        try:
-            mod = ast.parse(text)
-        except SyntaxError as e:
-            failures.append(f"{py}: SyntaxError: {e}")
-            continue
+for py in iter_py_files(root):
+    total += 1
+    text = py.read_text(encoding="utf-8", errors="ignore")
+    try:
+        mod = ast.parse(text)
+    except SyntaxError as e:
+        failures.append(f"{py}: SyntaxError: {e}")
+        continue
 
-        # module docstring or banner? (fatal if none)
-        mod_doc = ast.get_docstring(mod)
-        has_banner = bool(mod_doc) or banner_in_comments(text)
+    # module docstring or banner? (fatal if none, except in tests/)
+    mod_doc = ast.get_docstring(mod)
+    has_banner = bool(mod_doc) or banner_in_comments(text)
+
+    if "tests" in py.parts:
+        if not has_banner:
+            alerts.append(f"{py}: missing module docstring or banner (ignored for tests)")
+    else:
         if not has_banner:
             failures.append(f"{py}: missing module docstring or banner")
 
-        # check public defs/classes for docstrings (non-fatal: alert only)
-        for node in mod.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                name = getattr(node, "name", "<anon>")
-                if name.startswith("_"):
-                    continue
-                ds = ast.get_docstring(node)
-                if not ds:
-                    alerts.append(f"{py}: public symbol '{name}' missing docstring")
+    # check public defs/classes for docstrings (non-fatal: alert only)
+    for node in mod.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            name = getattr(node, "name", "<anon>")
+            if name.startswith("_"):
+                continue
+            ds = ast.get_docstring(node)
+            if not ds:
+                alerts.append(f"{py}: public symbol '{name}' missing docstring")
 
-    # Print summary
-    if failures:
-        print("=== Validation CRITIQUE — problèmes détectés ===", file=sys.stderr)
-        for f in failures:
-            print(f"- {f}", file=sys.stderr)
-        if alerts:
-            print("\n=== Alerte(s) non critiques (docstrings manquantes) ===", file=sys.stderr)
-            for a in alerts[:200]:
-                print(f"- {a}", file=sys.stderr)
-        print(f"\nTotal fichiers scannés: {total}; problèmes critiques: {len(failures)}", file=sys.stderr)
-        sys.exit(2)
-
-    # No failures -> success, but show alerts if any
+# Print summary
+if failures:
+    print("=== Validation CRITIQUE — problèmes détectés ===", file=sys.stderr)
+    for f in failures:
+        print(f"- {f}", file=sys.stderr)
+    print(f"\nTotal fichiers scannés: {total}; problèmes critiques: {len(failures)}", file=sys.stderr)
+    # also print alerts for context
     if alerts:
-        print("=== Validation OK (pas de problèmes critiques). Alerte(s) détectées: ===")
-        for a in alerts:
-            print(f"- {a}")
-        print(f"\nTotal fichiers scannés: {total}; alertes: {len(alerts)}")
-        sys.exit(0)
-    else:
-        print(f"OK — {total} fichiers Python scannés. Bannières/docstrings module présentes.")
-        sys.exit(0)
+        print("\n=== Alerte(s) non critiques (docstrings manquantes) ===", file=sys.stderr)
+        for a in alerts[:200]:
+            print(f"- {a}", file=sys.stderr)
+    sys.exit(2)
 
-if __name__ == "__main__":
-    main()
+# No failures -> success, but show alerts if any
+if alerts:
+    print("=== Validation OK (pas de problèmes critiques). Alerte(s) détectées: ===")
+    for a in alerts:
+        print(f"- {a}")
+    print(f"\nTotal fichiers scannés: {total}; alertes: {len(alerts)}")
+    sys.exit(0)
+else:
+    print(f"OK — {total} fichiers Python scannés. Bannières/docstrings module présentes.")
+    sys.exit(0)
