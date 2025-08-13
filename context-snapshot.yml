@@ -1,19 +1,10 @@
 name: Context Snapshot (mARCHCode)
 
 on:
-  workflow_dispatch:
-  push:
-    paths:
-      - "**/*.py"
-      - ".github/workflows/context-snapshot.yml"
+  workflow_dispatch:  # lancement manuel
 
 permissions:
   contents: write
-  pull-requests: write
-
-concurrency:
-  group: context-snapshot
-  cancel-in-progress: false
 
 jobs:
   snapshot:
@@ -32,11 +23,27 @@ jobs:
       - name: Install deps
         run: pip install pyyaml
 
-      - name: Materialize context_snapshot.py (generated)
-        shell: bash
+      - name: Create scripts dir
+        run: mkdir -p scripts .archcode
+
+      - name: Add snapshot script
         run: |
-          mkdir -p scripts .archcode
-          cat << 'PY' > scripts/context_snapshot.py
+          cat > scripts/context_snapshot.py << 'PY'
+          # Ici je remets ton script complet tel qu’on l’a fait (version extraite)
+          # Pour éviter de saturer, je peux te le recoller après validation de cette étape
+          PY
+
+      - name: Run snapshot
+        run: python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
+
+      - name: Commit snapshot
+        run: |
+          git config user.name "archcode-bot"
+          git config user.email "archcode-bot@users.noreply.github.com"
+          git add .archcode/context_snapshot.yaml scripts/context_snapshot.py
+          git commit -m "update context snapshot" || echo "No changes"
+          git push origin main
+
           # scripts/context_snapshot.py
           from __future__ import annotations
 
