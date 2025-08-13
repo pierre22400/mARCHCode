@@ -40,3 +40,10 @@ echo.
 echo [OK] Synchronisation terminée avec succès.
 pause
 endlocal
+
+
+
+REM     pour commiter un fichier par exemple context-snapshot.yml vers github dans la console windows
+REM git add .github/workflows/context-snapshot.yml
+REM git commit -m "fix: déplacement du workflow context-snapshot vers .github/workflows"
+REM git push origin master:main
