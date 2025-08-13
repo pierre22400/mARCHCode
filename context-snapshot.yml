@@ -27,33 +27,9 @@ jobs:
         run: mkdir -p scripts .archcode
 
       - name: Add snapshot script
+        shell: bash
         run: |
-          cat > scripts/context_snapshot.py << 'PY'
-          # ICI → mettre le script complet que je t’ai donné
-          PY
-
-      - name: Run snapshot
-        run: |
-          mkdir -p .archcode
-          python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
-          test -f .archcode/context_snapshot.yaml || (echo "Fichier non généré !" && exit 1)
-      - name: Debug output
-        run: |
-          echo "=== Listing .archcode directory ==="
-          ls -la .archcode || echo ".archcode does not exist"
-          echo "=== Full tree ==="
-          find . -type f | sort
-
-      - name: Commit snapshot (force add)
-        run: |
-          git config user.name "archcode-bot"
-          git config user.email "archcode-bot@users.noreply.github.com"
-          git add -f .archcode/context_snapshot.yaml scripts/context_snapshot.py
-          git commit -m "update context snapshot [force]" || echo "No changes to commit"
-          git pull --rebase origin main
-          git push origin main
-
-          # scripts/context_snapshot.py
+          cat > scripts/context_snapshot.py <<-'PY'
           from __future__ import annotations
 
           import ast
@@ -61,7 +37,7 @@ jobs:
           import os
           from dataclasses import dataclass
           from pathlib import Path
-          from typing import Any, Dict, List, Optional, Tuple, Union
+          from typing import Any, Dict, List, Optional, Union
           from datetime import datetime
           import platform
 
@@ -110,7 +86,6 @@ jobs:
           # ============================================================
           """
 
-
           IGNORED_DIRS = {
               ".git",
               "__pycache__",
@@ -127,6 +102,8 @@ jobs:
           DEFAULT_OUT = ".archcode/context_snapshot.yaml"
 
 
+          # ------------------------ Utilitaires YAML -----------------------
+
           class _LiteralDumper(yaml.SafeDumper):
               """Dumper: chaînes multi-lignes en bloc `|` quand pertinent."""
 
@@ -139,22 +116,28 @@ jobs:
           _LiteralDumper.add_representer(str, _repr_str)
 
 
+          # ------------------ Extraction arborescence ----------------------
+
           def iter_files(root: Path) -> List[Path]:
               files: List[Path] = []
               for p in sorted(root.rglob("*")):
                   if p.is_dir():
-                      parts = set(p.parts)
-                      if parts & IGNORED_DIRS:
+                      # ignorer les dossiers exclus
+                      if any(seg in IGNORED_DIRS for seg in p.relative_to(root).parts):
                           continue
                       continue
-                  if any(seg in IGNORED_DIRS for seg in p.parts):
+                  if any(seg in IGNORED_DIRS for seg in p.relative_to(root).parts):
                       continue
                   files.append(p)
               return files
 
 
           def ascii_tree(root: Path) -> str:
+              """
+              Construit un 'tree' ASCII minimal (dossiers/fichiers), en ignorant IGNORED_DIRS.
+              """
               lines: List[str] = [str(root.resolve())]
+
               def children(d: Path) -> List[Path]:
                   ch = []
                   for p in sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
@@ -176,6 +159,8 @@ jobs:
               return "\n".join(lines)
 
 
+          # --------------------- Parsing Python (AST) ----------------------
+
           @dataclass
           class RouteInfo:
               framework: str
@@ -195,6 +180,10 @@ jobs:
 
 
           def _first_toplevel_string_after_imports(module: ast.Module) -> Optional[str]:
+              """
+              Retourne la 1ère chaîne toplevel (Expr Constant str), même si elle est placée
+              après des imports. C’est notre "bannière" mARCHCode.
+              """
               for node in module.body:
                   if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant):
                       if isinstance(node.value.value, str):
@@ -203,6 +192,7 @@ jobs:
 
 
           def _decorator_to_text(dec: ast.AST) -> str:
+              """Convertit un décorateur AST en texte lisible (best-effort)."""
               def name_of(n: ast.AST) -> str:
                   if isinstance(n, ast.Name):
                       return n.id
@@ -236,11 +226,17 @@ jobs:
 
 
           def _detect_route(dec: ast.AST) -> Optional[RouteInfo]:
+              """
+              Heuristique de détection :
+                - FastAPI : @router.get("/path"), @app.post("/x")
+                - Flask   : @app.route("/path", methods=["GET"])
+                - Typer   : @app.command()
+              """
+              # Appels type X.get("/path") / X.route("/path") / X.command()
               if isinstance(dec, ast.Call):
                   func = dec.func
                   if isinstance(func, ast.Attribute):
                       attr = func.attr.lower()
-                      base = _decorator_to_text(func.value)
                       if attr in {"get", "post", "put", "delete", "patch", "options", "head"}:
                           route_path = _literal_str(dec.args[0]) if dec.args else None
                           return RouteInfo(framework="fastapi", method=attr.upper(), path=route_path)
@@ -250,6 +246,7 @@ jobs:
                           return RouteInfo(framework="flask", method=methods, path=route_path)
                       if attr == "command":
                           return RouteInfo(framework="typer", method="COMMAND", path=None)
+              # Décorateurs non appelés : @router.get, @app.route, @app.command
               if isinstance(dec, ast.Attribute):
                   attr = dec.attr.lower()
                   if attr in {"get", "post", "put", "delete", "patch", "options", "head"}:
@@ -303,12 +300,14 @@ jobs:
                           name=node.name,
                           lineno=getattr(node, "lineno", -1),
                           params=params,
-                          decorators=decorators_text,
+                          decorators=decorators_text or [],
                           docstring=doc,
                           route=route_info,
                       )
                   )
 
+
+          # ------------------------- Extraction fichier -------------------
 
           def extract_python_file(py_path: Path) -> Dict[str, Any]:
               text = py_path.read_text(encoding="utf-8", errors="ignore")
@@ -320,6 +319,7 @@ jobs:
                       "error": f"SyntaxError: {e}",
                   }
 
+              # Bannière "mARCHCode" : premier string toplevel, sinon docstring module
               banner = _first_toplevel_string_after_imports(mod)
               module_doc = ast.get_docstring(mod)
 
@@ -356,21 +356,10 @@ jobs:
               }
 
 
-          def iter_files(root: Path) -> List[Path]:
-              files: List[Path] = []
-              for p in sorted(root.rglob("*")):
-                  if p.is_dir():
-                      parts = set(p.parts)
-                      if parts & IGNORED_DIRS:
-                          continue
-                      continue
-                  if any(seg in IGNORED_DIRS for seg in p.parts):
-                      continue
-                  files.append(p)
-              return files
-
+          # ----------------------------- Main -----------------------------
 
           def main(argv: List[str]) -> int:
+              # Args très simples (sans argparse pour rester minimal)
               root_arg: Optional[str] = None
               out_arg: Optional[str] = None
               it = iter(argv)
@@ -380,9 +369,71 @@ jobs:
                   elif a == "--out":
                       out_arg = next(it, None)
 
+              # Racine
               root = Path(root_arg) if root_arg else Path.cwd()
               if not root.exists():
                   print(f"[ERROR] Racine invalide: {root}", file=sys.stderr)
                   return 2
 
-              out_path = Path(out_arg) if out_arg else root_
+              # Fichier sortie
+              out_path = Path(out_arg) if out_arg else root / DEFAULT_OUT
+              out_path.parent.mkdir(parents=True, exist_ok=True)
+
+              # Arborescence + fichiers python
+              all_files = iter_files(root)
+              py_files = [p for p in all_files if p.suffix == ".py"]
+
+              # Snapshot
+              snapshot: Dict[str, Any] = {
+                  "snapshot": {
+                      "project": root.name,
+                      "root": str(root.resolve()),
+                      "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                      "python": sys.version.split()[0],
+                      "platform": platform.platform(),
+                      "files_count": len(all_files),
+                      "py_files_count": len(py_files),
+                      "ignored_dirs": sorted(list(IGNORED_DIRS)),
+                  },
+                  "tree": ascii_tree(root),
+                  "files": [],
+              }
+
+              for py in py_files:
+                  rel = py.relative_to(root)
+                  item = extract_python_file(py)
+                  item["relpath"] = str(rel).replace(os.sep, "/")
+                  snapshot["files"].append(item)
+
+              with out_path.open("w", encoding="utf-8") as f:
+                  yaml.dump(snapshot, f, Dumper=_LiteralDumper, sort_keys=False, allow_unicode=True, width=100)
+
+              print(f"[OK] Contexte écrit → {out_path}")
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main(sys.argv[1:]))
+          PY
+
+      - name: Run snapshot
+        run: |
+          mkdir -p .archcode
+          python scripts/context_snapshot.py --root . --out .archcode/context_snapshot.yaml
+          test -f .archcode/context_snapshot.yaml || (echo "Fichier non généré !" && exit 1)
+
+      - name: Debug output
+        run: |
+          echo "=== Listing .archcode directory ==="
+          ls -la .archcode || echo ".archcode does not exist"
+          echo "=== Full tree ==="
+          find . -type f | sort
+
+      - name: Commit snapshot (force add)
+        run: |
+          git config user.name "archcode-bot"
+          git config user.email "archcode-bot@users.noreply.github.com"
+          git add -f .archcode/context_snapshot.yaml scripts/context_snapshot.py
+          git commit -m "update context snapshot [force]" || echo "No changes to commit"
+          git pull --rebase origin main
+          git push origin main
