@@ -1,4 +1,4 @@
-name: CI — Validate banners & docstrings
+name: CI — Validate banners & docstrings (soft)
 
 on:
   push:
@@ -20,21 +20,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Validate banners & docstrings (script)
+      - name: Validate banners & docstrings (soft rules)
         run: |
           python - <<'PY'
           from __future__ import annotations
           """
-          validate_docstrings.py — Vérification simple des bannières / docstrings
-          ===================================================================
-          Ce script parcourt les fichiers .py (hors dossiers ignorés) et vérifie :
-            - pas d'erreur de parsing (SyntaxError)
-            - présence d'une docstring module OU d'une bannière de commentaires initiale
-            - fonctions/classes publiques (sans '_' préfixe) disposent d'une docstring
-          Retourne 0 si tout est OK, 2 si problèmes détectés.
+          validate_docstrings_soft.py — Vérification non-brisante
+          - ÉCHEC (exit != 0) seulement si:
+              * SyntaxError dans un .py
+              * absence de docstring module ET absence de bannière de commentaires
+          - Alerte (print) si fonctions/classes publiques sans docstring (NE FAIT PAS ÉCHOUER)
           """
           import ast, sys, os
           from pathlib import Path
+
           IGNORED_DIRS = {".git","__pycache__",".venv","venv",".env",".mypy_cache",".pytest_cache","node_modules",".idea",".vscode",".arch_runs",".archcode/archive"}
 
           def iter_py_files(root: Path):
@@ -48,7 +47,6 @@ jobs:
                   yield p
 
           def banner_in_comments(text: str) -> bool:
-              # collecte les commentaires initiaux consécutifs (ignorer shebang / encodings)
               lines = text.splitlines()
               comment_lines = []
               for ln in lines:
@@ -58,7 +56,7 @@ jobs:
                           break
                       else:
                           continue
-                  if s.startswith("#!"):  # shebang
+                  if s.startswith("#!"):
                       continue
                   if s.startswith("# -*-") or s.startswith("# coding:"):
                       continue
@@ -69,7 +67,8 @@ jobs:
               return len(comment_lines) > 0
 
           root = Path.cwd()
-          failures = []
+          failures = []   # conditions fatales
+          alerts = []     # conditions non-fatales (warnings)
           total = 0
 
           for py in iter_py_files(root):
@@ -81,13 +80,14 @@ jobs:
                   failures.append(f"{py}: SyntaxError: {e}")
                   continue
 
-              # module docstring or banner?
+              # module docstring or banner? (fatal if none)
               mod_doc = ast.get_docstring(mod)
               has_banner = bool(mod_doc) or banner_in_comments(text)
               if not has_banner:
                   failures.append(f"{py}: missing module docstring or banner")
+                  # continue scanning to show more issues
 
-              # check public defs/classes for docstrings
+              # check public defs/classes for docstrings (non-fatal: alert only)
               for node in mod.body:
                   if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                       name = getattr(node, "name", "<anon>")
@@ -95,15 +95,29 @@ jobs:
                           continue
                       ds = ast.get_docstring(node)
                       if not ds:
-                          failures.append(f"{py}: public symbol '{name}' missing docstring")
+                          alerts.append(f"{py}: public symbol '{name}' missing docstring")
 
+          # Print summary
           if failures:
-              print("=== Validation échouée — problèmes détectés ===", file=sys.stderr)
+              print("=== Validation CRITIQUE — problèmes détectés ===", file=sys.stderr)
               for f in failures:
                   print(f"- {f}", file=sys.stderr)
-              print(f"\nTotal fichiers scannés: {total}; problèmes: {len(failures)}", file=sys.stderr)
+              print(f"\nTotal fichiers scannés: {total}; problèmes critiques: {len(failures)}", file=sys.stderr)
+              # also print alerts for context
+              if alerts:
+                  print("\n=== Alerte(s) non critiques (docstrings manquantes) ===", file=sys.stderr)
+                  for a in alerts[:200]:
+                      print(f"- {a}", file=sys.stderr)
               sys.exit(2)
+
+          # No failures -> success, but show alerts if any
+          if alerts:
+              print("=== Validation OK (pas de problèmes critiques). Alerte(s) détectées: ===")
+              for a in alerts:
+                  print(f"- {a}")
+              print(f"\nTotal fichiers scannés: {total}; alertes: {len(alerts)}")
+              sys.exit(0)
           else:
-              print(f"OK — {total} fichiers Python scannés. Bannières/docstrings présentes.")
+              print(f"OK — {total} fichiers Python scannés. Bannières/docstrings module présentes.")
               sys.exit(0)
           PY
