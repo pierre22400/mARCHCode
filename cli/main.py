@@ -123,6 +123,7 @@ def _validate_plan_line_dict(pl: Dict) -> List[str]:
 
 
 def _summary_counts(ep) -> Tuple[int, int]:
+    """Retourne un résumé `(nb_modules, nb_plan_lines)` pour un execution_plan parsé."""
     modules = len(ep.modules or [])
     pl_count = sum(len(m.get("plan_lines", [])) for m in ep.modules or [])
     return modules, pl_count
@@ -313,6 +314,7 @@ def cmd_rollback_green(
 # --- entry point --------------------------------------------
 
 def main() -> None:
+    """Point d’entrée : instancie et lance l’application Typer."""
     app()
 
 

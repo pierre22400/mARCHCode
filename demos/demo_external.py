@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -43,6 +42,7 @@ from adapters.git_adapter import (
 
 # Orchestrateur → adaptateurs concrets (Git)
 def _apply_and_commit_git(pb: PatchBlock, decision) -> None:
+    """Applique le patch sur le repo, crée/assure la branche, commit et (optionnellement) push."""
     repo_root = _APPLY_CTX["repo_root"]
     branch = _APPLY_CTX["branch"]
     push = _APPLY_CTX["push"]
@@ -50,13 +50,16 @@ def _apply_and_commit_git(pb: PatchBlock, decision) -> None:
     sha = apply_and_commit_git(pb, options=options)
     print(f"[git] commit {sha[:7]} on {branch}")
 
+
 def _regenerate_with_acw(pb: PatchBlock, decision, reasoner=None) -> None:
-    # Démo: on log juste la demande de retry
+    """Journalise une demande de régénération ciblée (démo console)."""
     print("[retry] targeted regeneration requested")
     if decision.reasons:
         print("  reasons:", "; ".join(decision.reasons))
 
+
 def _rollback_and_log(pb: PatchBlock, decision) -> None:
+    """Annule les changements du fichier cible dans la worktree et logge l’exclusion du patch."""
     repo_root = _APPLY_CTX["repo_root"]
     target = getattr(pb.meta, "file", None)
     if target:
@@ -66,10 +69,12 @@ def _rollback_and_log(pb: PatchBlock, decision) -> None:
             print(f"[rollback] non-bloquant: {e}")
     print("[rollback] patch excluded")
 
+
 _APPLY_CTX: Dict[str, Any] = {}
 
 
-def main():
+def main() -> None:
+    """Point d’entrée CLI de la démo externe (parse args, boucle plan→writer→checkers→orchestrateur)."""
     ap = argparse.ArgumentParser(description="Demo EXTERNE: plan → ACWP → ACW → checkers → orchestrateur")
     ap.add_argument("--ep", required=True, help="Chemin vers execution_plan.yaml (manuel)")
     ap.add_argument("--repo", default=".", help="Racine du repo (où écrire/committer)")
@@ -102,6 +107,7 @@ def main():
     try:
         policy = SelfDevPolicy.load_from_file(args.policy)
     except Exception:
+        # Silencieux en démo : pas de policy stricte si le chargement échoue
         pass
 
     # Adapters orchestrateur

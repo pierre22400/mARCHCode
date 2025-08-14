@@ -1,4 +1,3 @@
-
 # core/fs_apply.py
 from __future__ import annotations
 
@@ -57,11 +56,12 @@ apply_patchblock_to_file(pb: PatchBlock, console: Optional[Console] = None) -> T
     Retourne (action, bytes_written) avec action ∈ {"insert", "replace", "skip"}.
 """
 
-_BEGIN = "#"+"{begin_meta:"
+_BEGIN = "#" + "{begin_meta:"
 _END = "#{end_meta}"
 
 
 def _sha256_short(s: str) -> str:
+    """Retourne le SHA-256 tronqué à 12 hex chars pour une chaîne donnée (usage: comparaison idempotente)."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
 
 
@@ -87,7 +87,9 @@ def _split_block(code: str) -> Tuple[str, Optional[str], str, Optional[str], str
     except StopIteration:
         raise ValueError("Bloc invalide: ligne begin_meta introuvable.")
     try:
-        i_end = i_begin + 1 + next(i for i, ln in enumerate(lines[i_begin + 1 :]) if ln.strip() == _END)
+        i_end = i_begin + 1 + next(
+            i for i, ln in enumerate(lines[i_begin + 1 :]) if ln.strip() == _END
+        )
     except StopIteration:
         raise ValueError("Bloc invalide: ligne end_meta introuvable.")
 
@@ -107,7 +109,9 @@ def _split_block(code: str) -> Tuple[str, Optional[str], str, Optional[str], str
     return lines[i_begin], marker_begin, payload, marker_end, lines[i_end]
 
 
-def _extract_between_markers(text: str, m_begin: str, m_end: str) -> Tuple[Optional[int], Optional[int], Optional[str]]:
+def _extract_between_markers(
+    text: str, m_begin: str, m_end: str
+) -> Tuple[Optional[int], Optional[int], Optional[str]]:
     """
     Dans `text`, trouve la 1ère fenêtre délimitée par `m_begin` et `m_end`.
     Retourne (start_index, end_index, payload_entre_marqueurs) ou (None, None, None) si absent.
@@ -160,7 +164,9 @@ def apply_patchblock_to_file(pb: PatchBlock, console: Optional[Console] = None) 
     # Cas avec marqueurs
     if marker_begin is not None and marker_end is not None:
         # 1) Les marqueurs existent déjà ? → comparer/remplacer
-        start_idx, end_idx, payload_current = _extract_between_markers(current, marker_begin, marker_end)
+        start_idx, end_idx, payload_current = _extract_between_markers(
+            current, marker_begin, marker_end
+        )
         if payload_current is not None:
             hash_cur = _sha256_short(payload_current)
             if hash_cur == hash_new:
@@ -181,7 +187,10 @@ def apply_patchblock_to_file(pb: PatchBlock, console: Optional[Console] = None) 
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(new_text, encoding="utf-8")
             written = len(new_text.encode("utf-8"))
-            msg = f"fs:replace markers payload_hash_old={hash_cur} payload_hash_new={hash_new} file={file_path}"
+            msg = (
+                f"fs:replace markers payload_hash_old={hash_cur} "
+                f"payload_hash_new={hash_new} file={file_path}"
+            )
             pb.append_history(msg)
             if console:
                 console.log(msg)

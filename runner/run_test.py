@@ -53,18 +53,58 @@ TIMEOUT_S = int(os.getenv("TIMEOUT_S", "45"))
 OUT_DIR   = Path(os.getenv("OUT_DIR", "./.arch_results"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def log(msg: str):
+    """Écrit un message de log.
+
+    Le message est :
+      - imprimé sur stdout en environnement local,
+      - systématiquement ajouté à `OUT_DIR/run.log`.
+
+    Args:
+        msg: Contenu textuel à consigner.
+
+    Returns:
+        None.
+    """
     # En local, on affiche; sur Render, on écrit surtout fichier (stdout reste ok mais on réduit)
     line = f"[ARCH:{LOG_LEVEL}] {msg}"
     if ARCH_ENV == "local":
         print(line)
     (OUT_DIR / "run.log").open("a", encoding="utf-8").write(line + "\n")
 
+
 def write_result(payload: dict, fname: str = "result.json"):
+    """Écrit le résultat structuré du run en JSON.
+
+    Args:
+        payload: Dictionnaire sérialisable (status, meta, etc.).
+        fname: Nom de fichier (par défaut `result.json`) dans `OUT_DIR`.
+
+    Returns:
+        None.
+    """
     p = OUT_DIR / fname
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+
 def resolve_callable(target: str):
+    """Résout une cible `module[:callable]` vers un objet appelable.
+
+    Formats acceptés:
+      - `package.module:func`
+      - `package.module` (alors `main()` est supposé)
+
+    Args:
+        target: Spécification de la cible à exécuter.
+
+    Returns:
+        Tuple `(module_name, func_name, func_obj)`.
+
+    Raises:
+        ModuleNotFoundError: Si le module est introuvable.
+        AttributeError: Si la fonction n’existe pas ou n’est pas appelable.
+    """
     """
     target formats:
       - package.module:func
@@ -80,7 +120,23 @@ def resolve_callable(target: str):
         raise AttributeError(f"Callable '{func_name}' introuvable dans '{mod_name}'")
     return mod_name, func_name, func
 
+
 def main():
+    """Point d’entrée CLI du test runner.
+
+    Lit les arguments, résout la cible, exécute l’appel, capture le résultat,
+    écrit les artefacts (`run.log`, `result.json`) et définit le code de sortie.
+
+    Args:
+        None.
+
+    Returns:
+        None. Le process se termine via `sys.exit(0|1)`.
+
+    Side Effects:
+        - Création/écriture de fichiers dans `OUT_DIR`.
+        - Impression console en mode local.
+    """
     ap = argparse.ArgumentParser(description="ARCH unified test runner")
     ap.add_argument("target", help="module[:callable], ex: src.my_mod:test_entry")
     ap.add_argument("--args", default="[]", help="JSON list, ex: '[\"--flag\", 3]'")
@@ -138,6 +194,6 @@ def main():
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
-

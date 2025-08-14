@@ -36,16 +36,19 @@ from typing import Any, Dict, Mapping
 # ---------- utilitaires basiques ----------
 
 def _now_iso() -> str:
+    """Retourne la date/heure locale au format ISO (secondes)."""
     return datetime.now().isoformat(timespec="seconds")
 
 
 def _ensure_dir(root: str | Path) -> Path:
+    """Crée le dossier `root` s’il n’existe pas et renvoie son Path."""
     p = Path(root)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _meta_to_dict(meta: Any) -> Dict[str, Any]:
+    """Convertit un objet `meta` (dataclass/namespace/objet) en dict sérialisable."""
     if meta is None:
         return {}
     if is_dataclass(meta):
@@ -89,6 +92,7 @@ def patchblock_to_mapping(pb: Any) -> Dict[str, Any]:
 
 
 def decision_to_mapping(decision: Any) -> Dict[str, Any]:
+    """Transforme une décision (objet) en mapping YAML simple."""
     act = getattr(decision, "action", None)
     return {
         "action": getattr(act, "value", None) if act is not None else None,
@@ -103,17 +107,18 @@ def decision_to_mapping(decision: Any) -> Dict[str, Any]:
 # ---------- mini-émetteur YAML (zéro dépendance) ----------
 
 def _is_simple_scalar(s: str) -> bool:
-    # autorise sans guillemets : alnum + quelques ponctuations safe
+    """Indique si `s` peut être émis sans guillemets (alnum + ponctuation sûre)."""
     import re
     return bool(re.fullmatch(r"[A-Za-z0-9._/+-]+", s))
 
 
 def _yaml_escape(s: str) -> str:
-    # double quotes avec échappement minimal
+    """Échappe `s` pour une émission YAML entre doubles quotes."""
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
 def _emit_scalar(value: Any) -> str:
+    """Émet un scalaire YAML (null/bool/num/str avec block scalars si multi-lignes)."""
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -130,6 +135,7 @@ def _emit_scalar(value: Any) -> str:
 
 
 def _yamlify(obj: Any, indent: int = 0) -> str:
+    """Sérialise un objet Python (mapping/list/scalaire) en YAML minimaliste."""
     pad = " " * indent
     if isinstance(obj, Mapping):
         lines: list[str] = []
@@ -172,6 +178,7 @@ def _yamlify(obj: Any, indent: int = 0) -> str:
 
 
 def _write_yaml(root: str | Path, name: str, payload: Any) -> Path:
+    """Écrit un fichier YAML (`name`) dans `root` et met à jour l’index."""
     d = _ensure_dir(root)
     p = d / name
     p.write_text(_yamlify(payload) + "\n", encoding="utf-8")
@@ -180,6 +187,7 @@ def _write_yaml(root: str | Path, name: str, payload: Any) -> Path:
 
 
 def _write_text(root: str | Path, name: str, text: str) -> Path:
+    """Écrit un fichier texte (`name`) dans `root` et met à jour l’index."""
     d = _ensure_dir(root)
     p = d / name
     p.write_text(text, encoding="utf-8")
@@ -188,6 +196,7 @@ def _write_text(root: str | Path, name: str, text: str) -> Path:
 
 
 def _append_text(root: str | Path, name: str, line: str) -> Path:
+    """Append une ligne à `name` dans `root` (création implicite si absent)."""
     d = _ensure_dir(root)
     p = d / name
     with p.open("a", encoding="utf-8") as f:
@@ -203,11 +212,10 @@ def _append_text(root: str | Path, name: str, line: str) -> Path:
 
 def _update_index(run_dir: Path, filename: str) -> None:
     """
-    Maintient un index YAML minimal sous la forme:
+    Met à jour l’index ordonné du run :
       items:
         - file: patch_before.yaml
           at:   2025-08-12T12:34:56
-    L’ordre reflète la séquence réelle d’écriture.
     """
     idx = run_dir / "index.yaml"
     if not idx.exists():
@@ -220,28 +228,32 @@ def _update_index(run_dir: Path, filename: str) -> None:
 # ---------- API publique ----------
 
 def archive_execution_plan(ep_yaml_text: str, *, run_dir: str | Path) -> Path:
-    """Sauve execution_plan tel quel (déjà YAML)."""
+    """Archive `execution_plan.yaml` tel quel (chaîne déjà YAML)."""
     return _write_text(run_dir, "execution_plan.yaml", ep_yaml_text)
 
 
 def archive_patch_before(pb: Any, *, run_dir: str | Path) -> Path:
+    """Archive l’état du PatchBlock *avant* checkers/router."""
     return _write_yaml(run_dir, "patch_before.yaml", patchblock_to_mapping(pb))
 
 
 def archive_patch_after(pb: Any, *, run_dir: str | Path) -> Path:
+    """Archive l’état du PatchBlock *après* checkers/router."""
     return _write_yaml(run_dir, "patch_after.yaml", patchblock_to_mapping(pb))
 
 
 def archive_patch_post_commit(pb: Any, *, run_dir: str | Path) -> Path:
-    """Optionnel, utile si meta.commit_sha a été injecté par l’adaptateur Git."""
+    """Archive optionnelle du PatchBlock après injection `commit_sha` par l’adaptateur Git."""
     return _write_yaml(run_dir, "patch_post_commit.yaml", patchblock_to_mapping(pb))
 
 
 def archive_decision(decision: Any, *, run_dir: str | Path) -> Path:
+    """Archive la décision finale (action/statuts/raisons)."""
     return _write_yaml(run_dir, "decision.yaml", decision_to_mapping(decision))
 
 
 def append_console_log(line: str, *, run_dir: str | Path) -> Path:
+    """Append une ligne de log console au fichier `console.log` du run."""
     return _append_text(run_dir, "console.log", line)
 
 

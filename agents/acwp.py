@@ -42,8 +42,9 @@ def _infer_module(file_path: str) -> str:
     """Déduit un nom de module simple à partir du chemin (ex: 'user/controller.py' -> 'user')."""
     return file_path.split("/")[0] if "/" in file_path else "module"
 
+
 def _format_constraints(constraints: Dict[str, Any] | None) -> List[str]:
-    """Transforme constraints en lignes YAML '  - key: value'."""
+    """Transforme `constraints` en lignes YAML de la forme `'  - key: value'`."""
     if not constraints:
         return []
     out: List[str] = []
@@ -51,17 +52,21 @@ def _format_constraints(constraints: Dict[str, Any] | None) -> List[str]:
         out.append(f"  - {k}: {v}")
     return out
 
+
 def _indent_block(text: str, indent: int = 2) -> str:
+    """Indente chaque ligne de `text` avec `indent` espaces (préserve les lignes vides)."""
     pad = " " * indent
     return "\n".join(pad + line if line else pad for line in text.splitlines())
 
+
 def _digest_intent(plan_line: PlanLine) -> str:
-    """Empreinte stable de l'intention (idempotence/cache côté ACW)."""
+    """Calcule une empreinte stable (SHA-256 tronqué) de l'intention pour idempotence/cache côté ACW."""
     basis = f"{plan_line.plan_line_id}|{plan_line.signature}|{plan_line.target_symbol}"
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:12]
 
+
 def _validate_plan_line(pl: PlanLine) -> None:
-    """Garde-fous minimaux, alignés tiddler Autopilot."""
+    """Valide les champs minimaux d'une PlanLine (garde-fous alignés avec le tiddler Autopilot)."""
     if not pl.plan_line_id or not pl.plan_line_id.strip():
         raise ValueError("PlanLine invalide: plan_line_id manquant.")
     if not pl.file or not pl.file.endswith(".py"):
@@ -77,11 +82,13 @@ def _validate_plan_line(pl: PlanLine) -> None:
     if not pl.acceptance or len(pl.acceptance) == 0:
         raise ValueError(f"{pl.plan_line_id}: au moins un critère 'acceptance' requis")
 
+
 # ------------------------- Prompts (texte & YAML) -------------------------
 
 def _build_writer_prompt_text(pl: PlanLine) -> str:
     """
-    Prompt texte compact, auto-contenu, pour guider ACW (aucun RAG).
+    Construit un prompt TEXTE compact, auto-contenu, pour guider ACW (sans RAG).
+    Met l’accent sur la signature, le rôle, les contraintes et les critères d’acceptation.
     """
     lines: List[str] = []
     lines.append("Tu es un copiste de code (ACW) pour ARCHCode, niveau PlanLine.")
@@ -122,6 +129,7 @@ def _build_writer_prompt_text(pl: PlanLine) -> str:
     lines.append("  - Code Python idiomatique, lisible, 4 espaces, pas de bare except.")
     return "\n".join(lines)
 
+
 def build_prompt(
     pl: PlanLine,
     *,
@@ -132,7 +140,8 @@ def build_prompt(
     task_id: Optional[str] = None,
 ) -> str:
     """
-    PROMPT YAML déterministe (compat V1) pour ACW.
+    Construit un PROMPT YAML déterministe (compat V1) pour ACW.
+
     - Concatène acceptance + constraints.
     - Force expected_format avec balises #{begin_meta}/#{end_meta}.
     - Fournit meta (file/module/plan_line_id/loop_iteration).
@@ -193,6 +202,7 @@ def build_prompt(
     )
     return "\n".join(lines)
 
+
 # ---------------------------- API principale ----------------------------
 
 def build_writer_task(
@@ -207,9 +217,11 @@ def build_writer_task(
 ) -> Dict[str, Any]:
     """
     Construit une tâche auto-contenue pour ACW à partir d'une PlanLine.
-    Retourne un dict 'writer_task' prêt à consommer par ACW.
-      - writer_prompt       : prompt texte compact
-      - writer_prompt_yaml  : prompt YAML déterministe (compat V1)
+
+    Retour:
+      - dict 'writer_task' prêt à consommer par ACW, avec:
+        * writer_prompt        (texte compact)
+        * writer_prompt_yaml   (YAML déterministe, compat V1)
     """
     _validate_plan_line(pl)
 
@@ -263,8 +275,9 @@ def plan_to_writer_tasks(
     loop_iteration: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Transforme une séquence de PlanLine en une liste ordonnée de writer_tasks.
-    Propage les paramètres YAML communs (bus_message_id, user_story_id...).
+    Transforme une séquence de `PlanLine` en liste ordonnée de `writer_tasks`.
+
+    Propage les paramètres communs (bus_message_id, user_story_id, user_story, loop_iteration).
     """
     tasks: List[Dict[str, Any]] = []
     for pl in plan_lines:

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -39,7 +38,9 @@ from adapters.git_adapter import (
 # Adaptateurs orchestrateur (Git)
 _APPLY_CTX: Dict[str, Any] = {}
 
+
 def _apply_and_commit_git(pb: PatchBlock, decision) -> None:
+    """Applique le patch via Git: assure la branche, écrit le fichier, commit et (optionnellement) push."""
     repo_root = _APPLY_CTX["repo_root"]
     branch = _APPLY_CTX["branch"]
     push = _APPLY_CTX["push"]
@@ -47,12 +48,16 @@ def _apply_and_commit_git(pb: PatchBlock, decision) -> None:
     sha = apply_and_commit_git(pb, options=options)
     print(f"[git] commit {sha[:7]} on {branch}")
 
+
 def _regenerate_with_acw(pb: PatchBlock, decision, reasoner=None) -> None:
+    """Journalise une demande de régénération ciblée (mode démo, sans déclencher ACW)."""
     print("[retry] (self-dev) targeted regeneration requested")
     if decision.reasons:
         print("  reasons:", "; ".join(decision.reasons))
 
+
 def _rollback_and_log(pb: PatchBlock, decision) -> None:
+    """Annule les changements non commités pour le fichier cible et trace l’exclusion du patch."""
     repo_root = _APPLY_CTX["repo_root"]
     target = getattr(pb.meta, "file", None)
     if target:
@@ -63,7 +68,8 @@ def _rollback_and_log(pb: PatchBlock, decision) -> None:
     print("[rollback] patch excluded")
 
 
-def main():
+def main() -> None:
+    """Point d’entrée CLI: prépare le contexte, génère un petit patch sandbox et lance l’orchestrateur."""
     ap = argparse.ArgumentParser(description="Demo SELF-DEV: ARCHCode modifie un fichier sandbox de son propre repo")
     ap.add_argument("--repo", default=".", help="Racine du repo")
     ap.add_argument("--branch", default=None, help="Branche clone (ex: archcode-self/selfdev)")
@@ -120,6 +126,7 @@ def main():
     try:
         policy = SelfDevPolicy.load_from_file(args.policy)
     except Exception:
+        # Silencieux en démo si la policy est absente/illisible
         pass
 
     # Orchestrateur

@@ -60,7 +60,8 @@ Notes d’implémentation
 # ------------------------- Interfaces -------------------------
 
 class ApplyAndCommit(Protocol):
-    def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
+    def __call__(self, pb: PatchBlock, decision: Decision) -> None:
+        """Adapter hook pour appliquer un patch (FS/Git) et réaliser le commit."""
 
 
 class RegenerateWithACW(Protocol):
@@ -69,11 +70,13 @@ class RegenerateWithACW(Protocol):
         pb: PatchBlock,
         decision: Decision,
         reasoner: Optional[Reasoner] = None
-    ) -> None: ...
+    ) -> None:
+        """Adapter hook pour déclencher une régénération ciblée (ACW), avec reasoner optionnel."""
 
 
 class RollbackAndLog(Protocol):
-    def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
+    def __call__(self, pb: PatchBlock, decision: Decision) -> None:
+        """Adapter hook pour annuler/retirer le patch et journaliser l’opération."""
 
 
 @dataclass
@@ -107,6 +110,19 @@ def run_patch_local(
       5) Dispatch APPLY / RETRY / ROLLBACK via adaptateurs injectés
       6) Archive post-commit si commit_sha injecté par l’adaptateur Git
       7) Retourne (pb annoté, décision)
+
+    Args:
+        pb: PatchBlock à traiter.
+        adapters: Implémentations concrètes des hooks (apply/retry/rollback).
+        reasoner: Callable optionnel pour normaliser/mapper les raisons textuelles.
+        policy: Politique self-dev optionnelle (gating avant APPLY).
+        diff_stats: Diffstats calculés pour le patch courant.
+        branch_name: Nom de branche pour les règles de policy (si applicable).
+        partial_ok_count_so_far: Compteur d’items partiels (influence la policy).
+        archive_dir: Dossier d’archives YAML (ou None pour désactiver).
+
+    Returns:
+        Tuple (PatchBlock annoté par les checkers, Decision finale).
     """
     # (A) Archive d’entrée
     if archive_dir:
@@ -174,11 +190,13 @@ def run_patch_local(
 # ---------- Adaptateurs par défaut (console/no-op) ----------
 
 def _print_header(title: str) -> None:
+    """Affiche un titre encadré (console), pour structurer la sortie des actions."""
     bar = "─" * max(12, len(title))
     print(f"\n{title}\n{bar}")
 
 
 def _fmt_meta(pb: PatchBlock) -> str:
+    """Retourne une ligne compacte avec les principaux champs meta du PatchBlock."""
     m = pb.meta
     return (
         f"file={getattr(m, 'file', '') or '∅'}, "
@@ -188,6 +206,7 @@ def _fmt_meta(pb: PatchBlock) -> str:
 
 
 def default_apply_and_commit(pb: PatchBlock, decision: Decision) -> None:
+    """Implémentation console: simule APPLY (affiche le résumé et les meta)."""
     _print_header("APPLY → intégration (simulation)")
     print(decision.summary)
     print(f"meta: {_fmt_meta(pb)}")
@@ -199,6 +218,7 @@ def default_regenerate_with_acw(
     decision: Decision,
     reasoner: Optional[Reasoner] = None
 ) -> None:
+    """Implémentation console: simule RETRY (affiche résumé + raisons)."""
     _print_header("RETRY → régénération ciblée (simulation)")
     print(decision.summary)
     print(f"meta: {_fmt_meta(pb)}")
@@ -208,6 +228,7 @@ def default_regenerate_with_acw(
 
 
 def default_rollback_and_log(pb: PatchBlock, decision: Decision) -> None:
+    """Implémentation console: simule ROLLBACK (affiche le résumé et les meta)."""
     _print_header("ROLLBACK → exclusion du patch (simulation)")
     print(decision.summary)
     print(f"meta: {_fmt_meta(pb)}")
@@ -222,6 +243,7 @@ class DefaultConsoleAdapters(OrchestrationAdapters):
       - Utile pour les tests de bout en bout du MVP.
     """
     def __init__(self) -> None:
+        """Initialise les callbacks par défaut vers les implémentations console."""
         super().__init__(
             apply_and_commit=default_apply_and_commit,
             regenerate_with_acw=default_regenerate_with_acw,

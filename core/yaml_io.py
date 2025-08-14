@@ -1,9 +1,11 @@
 # core/yaml_io.py
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
+from datetime import datetime
 
 import yaml
 
@@ -63,6 +65,7 @@ __all__ = [
 
 @dataclass
 class ExecutionPlan:
+    """Dataclass minimale représentant un execution_plan.yaml déjà parsé."""
     execution_plan_id: str = "EXEC-UNKNOWN"
     modules: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -88,6 +91,15 @@ _ALLOWED_ROLES = {
 # --- Validation minimale -------------------------------------
 
 def _errors_for_plan(ep: ExecutionPlan) -> List[str]:
+    """
+    Construit la liste des erreurs de structure de l'execution_plan.
+
+    Args:
+        ep: Objet ExecutionPlan à valider.
+
+    Returns:
+        Liste de messages d’erreurs (chaînes) ; vide si aucune erreur détectée.
+    """
     errs: List[str] = []
     if not isinstance(ep.modules, list) or not ep.modules:
         errs.append("`modules` doit être une liste non vide.")
@@ -152,7 +164,16 @@ def _errors_for_plan(ep: ExecutionPlan) -> List[str]:
 def load_execution_plan(path: str | Path) -> ExecutionPlan:
     """
     Charge un execution_plan.yaml et renvoie un `ExecutionPlan` typé.
-    Lève `ValueError` avec messages clairs si la structure est invalide.
+
+    Args:
+        path: Chemin vers le fichier YAML.
+
+    Raises:
+        FileNotFoundError: si le fichier est introuvable.
+        ValueError: si le YAML est invalide ou si la structure ne respecte pas les invariants.
+
+    Returns:
+        ExecutionPlan: objet prêt à être parcouru par le planner.
     """
     p = Path(path)
     if not p.exists():
@@ -188,6 +209,12 @@ class _LiteralDumper(yaml.SafeDumper):
 
 
 def _repr_str_literal_or_plain(dumper: yaml.Dumper, data: str):  # type: ignore[name-defined]
+    """
+    Représentant YAML personnalisé pour sérialiser les chaînes.
+
+    - Utilise le style bloc `|` dès qu'une nouvelle ligne est détectée,
+      sinon laisse le style par défaut (plain).
+    """
     style = "|" if ("\n" in data) else None
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
@@ -199,8 +226,17 @@ _LiteralDumper.add_representer(str, _repr_str_literal_or_plain)
 
 def _extract_meta_dict(pb: PatchBlock) -> Dict[str, Any]:
     """
-    Tolérant : `pb.meta` peut être un dict, une dataclass, un SimpleNamespace ou un objet.
-    On récupère uniquement un sous-ensemble de clés stables et utiles au pipeline.
+    Extrait un sous-ensemble stable de métadonnées depuis `pb.meta`.
+
+    Tolérant :
+      - `pb.meta` peut être un dict, une dataclass, un SimpleNamespace ou un objet arbitraire.
+      - On renvoie uniquement les clés utiles au pipeline/CI, absentes autorisées (= None).
+
+    Args:
+        pb: PatchBlock source.
+
+    Returns:
+        dict: Dictionnaire de métadonnées filtrées.
     """
     keys = [
         # Traçabilité bus/spec
@@ -223,3 +259,85 @@ def _extract_meta_dict(pb: PatchBlock) -> Dict[str, Any]:
         "run_id",
     ]
     meta_obj = getattr(pb, "meta", None)
+    if meta_obj is None:
+        return {k: None for k in keys}
+
+    # 1) dataclass
+    if is_dataclass(meta_obj):
+        raw = asdict(meta_obj)
+        return {k: raw.get(k) for k in keys}
+
+    # 2) SimpleNamespace
+    if isinstance(meta_obj, SimpleNamespace):
+        raw = vars(meta_obj).copy()
+        return {k: raw.get(k) for k in keys}
+
+    # 3) dict direct
+    if isinstance(meta_obj, dict):
+        return {k: meta_obj.get(k) for k in keys}
+
+    # 4) Objet arbitraire : introspection douce
+    out: Dict[str, Any] = {}
+    for k in keys:
+        try:
+            out[k] = getattr(meta_obj, k, None)
+        except Exception:
+            out[k] = None
+    return out
+
+
+def _patchblock_to_serializable(pb: PatchBlock) -> Dict[str, Any]:
+    """
+    Transforme un PatchBlock en mapping prêt pour dump YAML lisible.
+
+    Args:
+        pb: PatchBlock à sérialiser.
+
+    Returns:
+        dict: Mapping avec code en str, meta filtrées, historiques, et champs globaux.
+    """
+    return {
+        "patch_id": getattr(pb, "patch_id", None),
+        "version": getattr(pb, "version", None),
+        "source_agent": getattr(pb, "source_agent", None),
+        "code": getattr(pb, "code", None),
+        "meta": _extract_meta_dict(pb),
+        "global_status": getattr(pb, "global_status", None),
+        "next_action": getattr(pb, "next_action", None),
+        "warning_level": getattr(pb, "warning_level", None),
+        "previous_hash": getattr(pb, "previous_hash", None),
+        "error_trace": getattr(pb, "error_trace", None),
+        "fatal_error": getattr(pb, "fatal_error", None),
+        "history": list(getattr(pb, "history", []) or []),
+        "history_ext": list(getattr(pb, "history_ext", []) or []),
+        "_exported_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def dump_patchblock_yaml(pb: PatchBlock, path: str | Path) -> None:
+    """
+    Écrit un `PatchBlock` en YAML lisible sur disque.
+
+    Particularités :
+      - Les chaînes multi-lignes (dont `code`) sont forcées en style bloc `|`.
+      - Les clés sont triées pour un diff stable.
+      - Les métadonnées sont filtrées à un sous-ensemble stable (_extract_meta_dict).
+
+    Args:
+        pb: PatchBlock source.
+        path: Chemin de sortie du fichier YAML.
+
+    Returns:
+        None
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = _patchblock_to_serializable(pb)
+    text = yaml.dump(
+        payload,
+        Dumper=_LiteralDumper,
+        sort_keys=True,
+        allow_unicode=True,
+        width=100000,  # évite les wraps intempestifs
+    )
+    p.write_text(text, encoding="utf-8")

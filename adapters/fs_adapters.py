@@ -1,12 +1,11 @@
 # adapters/fs_adapters.py
 
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-import re
+import re  # conservé pour usages futurs/regex si besoin
 import datetime as _dt
 
 from core.types import PatchBlock
@@ -54,31 +53,45 @@ Contrats respectés
 - Pas d’interaction LLM ici ; le Reasoner n’est utilisé qu’en RETRY pour log.
 """
 
+# Balises de délimitation (utilisées par les helpers)
+_BEGIN = "#" + "{begin_meta:"
+_END   = "#{end_meta}"
+
 
 # ---------- Helpers bas niveau (FS + recherche de blocs) ----------
 
 def _now_iso() -> str:
+    """Retourne l’horodatage ISO-8601 (avec fuseau) à la seconde près."""
     return _dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
+
 def _ensure_parent(p: Path) -> None:
+    """Crée récursivement le dossier parent de `p` si nécessaire."""
     p.parent.mkdir(parents=True, exist_ok=True)
 
+
 def _read_text(p: Path) -> str:
+    """Lit le contenu texte UTF-8 du fichier `p` (ou chaîne vide s’il n’existe pas)."""
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
+
 def _write_text(p: Path, txt: str) -> None:
+    """Écrit le texte UTF-8 `txt` dans le fichier `p` (en créant les dossiers si besoin)."""
     _ensure_parent(p)
     p.write_text(txt, encoding="utf-8")
 
+
 def _append_line(p: Path, line: str) -> None:
+    """Ajoute une ligne dans le fichier `p` (créé au besoin) en UTF-8, suffixée par un saut de ligne."""
     _ensure_parent(p)
     with p.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
 
+
 def _find_block_spans(text: str, plan_line_id: Optional[str]) -> List[Tuple[int, int]]:
     """
     Retourne la liste des (start, end) des blocs meta présents dans `text`.
-    Si plan_line_id est fourni, on ne retient que les blocs qui contiennent cette valeur.
+    Si `plan_line_id` est fourni, on ne retient que les blocs qui contiennent cette valeur.
     """
     spans: List[Tuple[int, int]] = []
     pos = 0
@@ -96,11 +109,20 @@ def _find_block_spans(text: str, plan_line_id: Optional[str]) -> List[Tuple[int,
         pos = e2
     return spans
 
+
 def _upsert_meta_block(file_path: Path, new_block: str, plan_line_id: Optional[str]) -> Tuple[str, bool]:
     """
-    Insère ou remplace un bloc meta dans file_path.
-      - plan_line_id permet de cibler un bloc existant ; si absent, append.
-      - Retourne (nouveau_contenu, replaced_flag).
+    Insère ou remplace un bloc meta dans `file_path`.
+
+    Args:
+        file_path: Chemin du fichier cible.
+        new_block: Bloc meta complet (avec #{begin_meta}/#{end_meta}).
+        plan_line_id: Identifiant de plan pour cibler le remplacement.
+
+    Returns:
+        (nouveau_contenu, replaced_flag) :
+          - `replaced_flag=True` si un bloc a été remplacé in situ,
+            sinon False (append).
     """
     src = _read_text(file_path)
     if not src.strip():
@@ -123,10 +145,19 @@ def _upsert_meta_block(file_path: Path, new_block: str, plan_line_id: Optional[s
     content = src + sep + new_block.rstrip() + "\n"
     return content, False
 
+
 def _remove_meta_block(file_path: Path, plan_line_id: Optional[str]) -> Tuple[str, bool]:
     """
-    Supprime le premier bloc meta portant plan_line_id ; si non trouvé, noop.
-    Retourne (nouveau_contenu, removed_flag).
+    Supprime le premier bloc meta portant `plan_line_id` ; si non trouvé, no-op.
+
+    Args:
+        file_path: Chemin du fichier cible.
+        plan_line_id: Identifiant de plan du bloc à retirer.
+
+    Returns:
+        (nouveau_contenu, removed_flag) :
+          - `removed_flag=True` si un bloc a été retiré,
+            sinon False.
     """
     src = _read_text(file_path)
     if not src:
@@ -137,6 +168,7 @@ def _remove_meta_block(file_path: Path, plan_line_id: Optional[str]) -> Tuple[st
     start, end = spans[0]
     content = (src[:start] + src[end:]).lstrip("\n")
     return content, True
+
 
 # ------------------------ Adaptateurs concrets ------------------------
 
@@ -153,10 +185,11 @@ class FSAdapters(OrchestrationAdapters):
     regen_queue: Path = Path("var/regeneration_queue.txt")
 
     def __init__(self) -> None:
+        """Initialise les callbacks d’orchestration (apply/retry/rollback) vers les méthodes locales."""
         super().__init__(
-            apply_and_commit=self.apply_and_commit,      # type: ignore[arg-type]
-            regenerate_with_acw=self.regenerate_with_acw,# type: ignore[arg-type]
-            rollback_and_log=self.rollback_and_log,      # type: ignore[arg-type]
+            apply_and_commit=self.apply_and_commit,       # type: ignore[arg-type]
+            regenerate_with_acw=self.regenerate_with_acw, # type: ignore[arg-type]
+            rollback_and_log=self.rollback_and_log,       # type: ignore[arg-type]
         )
 
     # ---- APPLY ----
@@ -178,13 +211,15 @@ class FSAdapters(OrchestrationAdapters):
 
         # log applicatif minimal
         action = "REPLACED" if replaced else "APPENDED"
-        _append_line(self.logs_dir / "apply.log",
-                     f"[{_now_iso()}] {action} file={rel} plan_line_id={getattr(pb.meta,'plan_line_id',None)} status={decision.global_status}/{decision.next_action}")
+        _append_line(
+            self.logs_dir / "apply.log",
+            f"[{_now_iso()}] {action} file={rel} plan_line_id={getattr(pb.meta,'plan_line_id',None)} status={decision.global_status}/{decision.next_action}"
+        )
 
     # ---- RETRY ----
     def regenerate_with_acw(self, pb: PatchBlock, decision: Decision, reasoner: Optional[Reasoner] = None) -> None:
         """
-        File de régénération simple : on empile une entrée textuelle.
+        File de régénération simple : empile une entrée textuelle dans `var/regeneration_queue.txt`.
         (Le branchement réel vers agent_code_writer viendra plus tard.)
         """
         fused = " | ".join(decision.reasons) if decision.reasons else ""
@@ -195,13 +230,15 @@ class FSAdapters(OrchestrationAdapters):
             except Exception:
                 pass
 
-        _append_line(self.regen_queue,
-                     f"[{_now_iso()}] RETRY file={getattr(pb.meta,'file',None)} plan_line_id={getattr(pb.meta,'plan_line_id',None)} reasons={fused}")
+        _append_line(
+            self.regen_queue,
+            f"[{_now_iso()}] RETRY file={getattr(pb.meta,'file',None)} plan_line_id={getattr(pb.meta,'plan_line_id',None)} reasons={fused}"
+        )
 
     # ---- ROLLBACK ----
     def rollback_and_log(self, pb: PatchBlock, decision: Decision) -> None:
         """
-        Retire le bloc ciblé du fichier si présent et journalise dans rollback_bundle.yaml.
+        Retire le bloc ciblé du fichier si présent et journalise dans `var/rollback_bundle.yaml`.
         """
         rel = (getattr(pb.meta, "file", None) or "").strip()
         plan_id = getattr(pb.meta, "plan_line_id", None)
@@ -216,6 +253,7 @@ class FSAdapters(OrchestrationAdapters):
                 _write_text(target, new_body)
 
         # Append YAML minimal dans rollback_bundle
-        _append_line(self.rollback_bundle,
-                     f"- ts: '{_now_iso()}'\n  file: '{rel}'\n  plan_line_id: '{plan_id}'\n  reason: 'router:{decision.global_status}/{decision.next_action}'")
-
+        _append_line(
+            self.rollback_bundle,
+            f"- ts: '{_now_iso()}'\n  file: '{rel}'\n  plan_line_id: '{plan_id}'\n  reason: 'router:{decision.global_status}/{decision.next_action}'"
+        )

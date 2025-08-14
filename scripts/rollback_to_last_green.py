@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#rollback_to_last_green.py
-
+# rollback_to_last_green.py
 
 from __future__ import annotations
 
@@ -67,7 +66,18 @@ Traçabilité
 # ---------- Helpers Git ----------
 
 def run(cmd: List[str], dry: bool = False) -> str:
-    """Exécute une commande shell et renvoie stdout.strip(). En mode dry-run, affiche seulement."""
+    """Exécute une commande shell et renvoie `stdout.strip()`.
+
+    Args:
+        cmd: Liste des tokens de la commande à exécuter.
+        dry: Si True, n’exécute pas et affiche seulement la commande.
+
+    Returns:
+        La sortie standard (sans espaces de fin) lorsque `dry` est False, sinon chaîne vide.
+
+    Raises:
+        RuntimeError: Si la commande retourne un code non nul.
+    """
     if dry:
         print(f"[DRY] $ {' '.join(cmd)}")
         return ""
@@ -78,47 +88,106 @@ def run(cmd: List[str], dry: bool = False) -> str:
 
 
 def git_root() -> Path:
+    """Retourne la racine du dépôt Git courant.
+
+    Returns:
+        Chemin `Path` de la racine du dépôt.
+    """
     out = run(["git", "rev-parse", "--show-toplevel"])
     return Path(out)
 
 
 def git_working_tree_clean() -> bool:
+    """Indique si l’arbre de travail est propre (sans modifications locales).
+
+    Returns:
+        True si `git status --porcelain` est vide, sinon False.
+    """
     out = run(["git", "status", "--porcelain"])
     return out == ""
 
 
 def list_green_tags() -> List[str]:
-    # Tri par date de création descendante ; on garde la plus récente en tête.
+    """Liste les tags `green-*` triés de la plus récente à la plus ancienne.
+
+    Returns:
+        Liste des noms de tags `green-*` (chaînes non vides).
+    """
     out = run(["git", "tag", "-l", "green-*", "--sort=-creatordate"])
     tags = [line.strip() for line in out.splitlines() if line.strip()]
     return tags
 
 
 def tag_to_sha(tag: str) -> str:
+    """Résout le SHA complet associé à un tag.
+
+    Args:
+        tag: Nom du tag à résoudre.
+
+    Returns:
+        SHA (hex) du commit pointé par `tag`.
+    """
     return run(["git", "rev-list", "-n", "1", tag])
 
 
 def short_sha(full_sha: str) -> str:
+    """Retourne le SHA abrégé correspondant à un SHA complet.
+
+    Args:
+        full_sha: SHA hexadécimal complet.
+
+    Returns:
+        SHA abrégé (généralement 7 caractères).
+    """
     return run(["git", "rev-parse", "--short", full_sha])
 
 
 def checkout(ref: str, dry: bool = False) -> None:
+    """Effectue un `git checkout` vers une référence donnée.
+
+    Args:
+        ref: Référence Git (commit, tag, branche).
+        dry: Mode simulation (aucune exécution si True).
+    """
     run(["git", "checkout", ref], dry=dry)
 
 
 def merge_noff(target_sha: str, message: str, dry: bool = False) -> None:
+    """Réalise un merge non fast-forward vers `target_sha`.
+
+    Args:
+        target_sha: SHA du commit cible à fusionner.
+        message: Message de merge.
+        dry: Mode simulation (aucune exécution si True).
+    """
     run(["git", "merge", "--no-ff", target_sha, "-m", message], dry=dry)
 
 
 def push_current_branch(dry: bool = False) -> None:
+    """Pousse la branche courante sur `origin`.
+
+    Args:
+        dry: Mode simulation (aucune exécution si True).
+    """
     run(["git", "push", "origin", "HEAD"], dry=dry)
 
 
 def push_with_lease(dry: bool = False) -> None:
+    """Force-push avec `--force-with-lease` sur la branche courante.
+
+    Args:
+        dry: Mode simulation (aucune exécution si True).
+    """
     run(["git", "push", "--force-with-lease", "origin", "HEAD"], dry=dry)
 
 
 def reset_hard(ref: str, dry: bool = False) -> None:
+    """Fait un `git reset --hard` vers la référence donnée.
+
+    Args:
+        ref: Référence Git (commit/branche) vers laquelle revenir.
+        dry: Mode simulation (aucune exécution si True).
+    """
     run(["git", "reset", "--hard", ref], dry=dry)
 
 
@@ -126,6 +195,15 @@ def reset_hard(ref: str, dry: bool = False) -> None:
 
 @dataclass
 class GreenTarget:
+    """Représente la cible *green* la plus récente.
+
+    Attributes:
+        tag: Nom du tag `green-<date>-<shortsha>`.
+        sha: SHA complet du commit taggé.
+        shortsha: SHA abrégé du commit taggé.
+        archive_path: Chemin vers l’archive `.tar.gz` post-commit.
+        metadata_path: Chemin vers le fichier `metadata_<shortsha>.yaml`.
+    """
     tag: str
     sha: str
     shortsha: str
@@ -134,6 +212,17 @@ class GreenTarget:
 
 
 def find_last_green_target(repo_root: Path) -> GreenTarget:
+    """Trouve la dernière cible *green* et ses artefacts associés.
+
+    Args:
+        repo_root: Racine du dépôt.
+
+    Returns:
+        Une instance `GreenTarget` décrivant tag, SHAs et chemins d’artefacts.
+
+    Raises:
+        FileNotFoundError: Si aucun tag `green-*` n’est trouvé.
+    """
     tags = list_green_tags()
     if not tags:
         raise FileNotFoundError("Aucun tag green-* trouvé.")
@@ -146,6 +235,14 @@ def find_last_green_target(repo_root: Path) -> GreenTarget:
 
 
 def read_metadata(meta_path: Path) -> Optional[dict]:
+    """Charge un fichier YAML de métadonnées *green* (tolérant).
+
+    Args:
+        meta_path: Chemin du fichier `metadata_<shortsha>.yaml`.
+
+    Returns:
+        Un dict de métadonnées ou None si absent/invalide.
+    """
     if not meta_path.exists():
         return None
     try:
@@ -160,6 +257,13 @@ def read_metadata(meta_path: Path) -> Optional[dict]:
 # ---------- Décompression simple tar.gz ----------
 
 def extract_archive(archive: Path, dest: Path, dry: bool = False) -> None:
+    """Extrait une archive `tar.gz` vers un répertoire destination.
+
+    Args:
+        archive: Chemin de l’archive `.tar.gz`.
+        dest: Répertoire de destination.
+        dry: Mode simulation (aucune extraction si True).
+    """
     if dry:
         print(f"[DRY] extract {archive} -> {dest}")
         return
@@ -171,6 +275,14 @@ def extract_archive(archive: Path, dest: Path, dry: bool = False) -> None:
 # ---------- Logique principale ----------
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """Point d’entrée CLI : rollback vers le dernier état *green*.
+
+    Args:
+        argv: Liste d’arguments (pour tests). Si None, utilise `sys.argv[1:]`.
+
+    Returns:
+        Code de retour POSIX (0 = succès, >0 = erreur).
+    """
     parser = argparse.ArgumentParser(description="Rollback vers le dernier état green.")
     parser.add_argument("--strategy", choices=["merge", "reset"], default="merge", help="Stratégie de retour (def: merge)")
     parser.add_argument("--dry-run", action="store_true", help="Afficher les actions sans exécuter")
@@ -229,4 +341,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

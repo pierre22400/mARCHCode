@@ -55,7 +55,17 @@ Licences & Traçabilité
 
 
 def run(cmd: List[str]) -> str:
-    """Exécute une commande et renvoie stdout.strip(), lève en cas d’échec."""
+    """Exécute une commande système synchronement.
+
+    Args:
+        cmd: Liste des tokens de la commande (ex.: ["git", "status", "--porcelain"]).
+
+    Returns:
+        La sortie standard `stdout.strip()`.
+
+    Raises:
+        RuntimeError: si le code de retour est non nul (inclut `stderr` dans le message).
+    """
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"Commande échouée: {' '.join(cmd)}\n{proc.stderr}")
@@ -63,23 +73,42 @@ def run(cmd: List[str]) -> str:
 
 
 def git_root() -> Path:
-    """Retourne la racine du repo Git courant."""
+    """Retourne la racine du dépôt Git courant.
+
+    Returns:
+        Chemin absolu de la racine du repo (`Path`).
+
+    Raises:
+        RuntimeError: si la commande Git échoue ou si l’on n’est pas dans un repo.
+    """
     out = run(["git", "rev-parse", "--show-toplevel"])
     return Path(out)
 
 
 def git_sha_short() -> str:
-    """Retourne le short SHA de HEAD."""
+    """Récupère le SHA abrégé (7+ chars) du HEAD courant.
+
+    Returns:
+        Le short SHA sous forme de chaîne.
+    """
     return run(["git", "rev-parse", "--short", "HEAD"])
 
 
 def git_sha() -> str:
-    """Retourne le SHA complet de HEAD."""
+    """Récupère le SHA complet du HEAD courant.
+
+    Returns:
+        Le SHA complet en hexadécimal.
+    """
     return run(["git", "rev-parse", "HEAD"])
 
 
 def git_branch() -> str:
-    """Retourne la branche courante (ou HEAD détachée)."""
+    """Détecte le nom de la branche courante.
+
+    Returns:
+        Le nom de la branche (ou 'DETACHED_HEAD' si HEAD est détaché ou en cas d’erreur).
+    """
     try:
         return run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     except Exception:
@@ -87,19 +116,31 @@ def git_branch() -> str:
 
 
 def git_author() -> str:
-    """Retourne le nom de l’auteur du dernier commit."""
+    """Retourne l’auteur du dernier commit.
+
+    Returns:
+        Nom complet de l’auteur (format Git log `%an`).
+    """
     return run(["git", "log", "-1", "--pretty=format:%an"])
 
 
 def ensure_dirs(p: Path) -> None:
-    """Crée les répertoires parents si besoin."""
+    """S’assure que les répertoires parents de `p` existent.
+
+    Args:
+        p: Chemin cible dont on veut créer l’arborescence parente.
+    """
     p.parent.mkdir(parents=True, exist_ok=True)
 
 
 def collect_artifacts(root: Path) -> List[Path]:
-    """
-    Sélection minimale d’artefacts reproductibles.
-    Étends cette liste au besoin (wheel, build, reports…).
+    """Collecte une liste minimale de fichiers à archiver pour un état *green*.
+
+    Args:
+        root: Racine du dépôt.
+
+    Returns:
+        Liste de chemins existants parmi les candidats connus (plans, locks, rapports).
     """
     candidates = [
         "execution_plan.yaml",
@@ -122,20 +163,19 @@ def collect_artifacts(root: Path) -> List[Path]:
 
 
 def create_metadata(root: Path, sha: str, shortsha: str, archive_path: Path) -> Path:
-    """
-    Crée un fichier metadata.yaml à embarquer dans l’archive.
+    """Génère un fichier `metadata_<shortsha>.yaml` décrivant l’archive *green*.
 
-    Format YAML produit :
-        sha: "<commit_sha>"
-        shortsha: "<short_sha>"
-        branch: "<branch_name>"
-        author: "<author_name>"
-        created_utc: "YYYY-MM-DDTHH:MM:SSZ"
-        archive: "<chemin/vers/archive.tar.gz>"
-        policy_ref:
-          branching: "docs/BRANCHING.md"
-          commits: "docs/COMMITS.md"
-          rollback: "docs/ROLLBACK.md"
+    Le fichier contient notamment: sha, shortsha, branche, auteur, date UTC,
+    chemin de l’archive, et des pointeurs vers la politique de branchement/rollback.
+
+    Args:
+        root: Racine du dépôt.
+        sha: SHA complet du commit.
+        shortsha: SHA abrégé du commit.
+        archive_path: Chemin absolu de l’archive qui sera produite.
+
+    Returns:
+        Le chemin vers le fichier `metadata_<shortsha>.yaml` créé.
     """
     meta = {
         "sha": sha,
@@ -160,7 +200,22 @@ def create_metadata(root: Path, sha: str, shortsha: str, archive_path: Path) -> 
 
 
 def create_archive(root: Path, sha: str, shortsha: str) -> Path:
-    """Construit .archcode/archive/patch_post_commit_<sha>.tar.gz avec les artefacts."""
+    """Construit l’archive `.archcode/archive/patch_post_commit_<sha>.tar.gz`.
+
+    L’archive embarque les artefacts collectés (plans, locks, rapports) ainsi
+    qu’un fichier `metadata_<shortsha>.yaml`.
+
+    Args:
+        root: Racine du dépôt.
+        sha: SHA complet du commit à archiver.
+        shortsha: SHA abrégé (utilisé pour le nom de metadata).
+
+    Returns:
+        Chemin vers l’archive créée.
+
+    Raises:
+        FileExistsError: si une archive pour ce SHA existe déjà.
+    """
     archive_dir = root / ".archcode" / "archive"
     ensure_dirs(archive_dir)
     archive_path = archive_dir / f"patch_post_commit_{sha}.tar.gz"
@@ -181,7 +236,18 @@ def create_archive(root: Path, sha: str, shortsha: str) -> Path:
 
 
 def tag_and_push(shortsha: str) -> str:
-    """Crée et pousse le tag green-<YYYYMMDD>-<shortsha>."""
+    """Crée et pousse le tag `green-<YYYYMMDD>-<shortsha>` sur `origin`.
+
+    Args:
+        shortsha: SHA abrégé du commit.
+
+    Returns:
+        Le nom du tag créé.
+
+    Raises:
+        FileExistsError: si le tag existe déjà localement.
+        RuntimeError: si une commande Git échoue.
+    """
     date_str = datetime.utcnow().strftime("%Y%m%d")
     tag = f"green-{date_str}-{shortsha}"
     # Vérifie si le tag existe déjà
@@ -195,6 +261,17 @@ def tag_and_push(shortsha: str) -> str:
 
 
 def main() -> int:
+    """Point d’entrée du script.
+
+    Étapes:
+        1) Résoudre la racine Git, le SHA et le short SHA.
+        2) Créer l’archive post-commit dans `.archcode/archive/`.
+        3) Créer et pousser le tag `green-<date>-<shortsha>`.
+        4) Afficher un résumé clair en cas de succès.
+
+    Returns:
+        Code de sortie POSIX (0 = succès, 1 = erreur).
+    """
     try:
         root = git_root()
         sha = git_sha()

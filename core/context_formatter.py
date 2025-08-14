@@ -1,4 +1,3 @@
-
 # core/context_formatter.py
 from __future__ import annotations
 """
@@ -30,12 +29,14 @@ from typing import Any, Dict, List, Tuple
 
 
 def _short(s: str, n: int = 120) -> str:
+    """Compacte `s` (max 3 lignes) et tronque à `n` caractères avec ellipsis."""
     s = (s or "").replace("\r", " ").replace("\t", " ")
     s = " ".join(s.splitlines()[:3])  # conserve jusqu'à 3 lignes
     return (s[: n - 3] + "...") if len(s) > n else s
 
 
 def _pick_top(items: List[Any], n: int) -> List[Any]:
+    """Retourne les `n` premiers éléments de `items` (sans copie profonde)."""
     return items[:n]
 
 
@@ -46,14 +47,16 @@ def normalize_context_for_prompt(
     max_chars: int = 1600,
 ) -> str:
     """
-    Transforme le dict `ctx` (issue du YAML) en un texte compact adapté au prompt.
-    Comportement :
-      - Extrait les métadonnées principales (project, generated_at, python, platform).
-      - Donne un résumé fichiers: counts, exemples de parse errors, fichiers avec banner.
-      - Liste brièvement les routes détectées (framework, méthode, path).
-      - Tronque proprement si > max_chars.
+    Sérialise `ctx` (issu du YAML) en texte compact pour prompt LLM.
 
-    Retour : chaîne texte prête à être concaténée dans un prompt.
+    Comportement :
+      - Résume snapshot (project, generated_at, python, platform, counts).
+      - Liste erreurs de parse (exemples), fichiers avec bannières (exemples).
+      - Extrait rapidement les routes détectées (framework, méthode, path).
+      - Tronque l'ensemble à `max_chars`.
+
+    Retour:
+      Chaîne texte prête à l’injection dans un prompt (peut être vide si `ctx` vide).
     """
     if not ctx:
         return ""

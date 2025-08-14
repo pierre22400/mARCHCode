@@ -1,0 +1,274 @@
+
+  <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
+
+  <!-- ======================================================= -->
+  <!-- 1) BRANCHING                                            -->
+  <!-- ======================================================= -->
+  <section style="margin-top: 28px;">
+    <h2 style="font-size: 1.35rem; margin-bottom: 8px;">1) Branching model — ARCHCode</h2>
+
+    <ul style="margin: 0 0 14px 22px;">
+      <li><strong>Intégration stable</strong> : <code>main</code> — doit rester <strong>green</strong> (build + tests OK).</li>
+      <li><strong>Branches de self-dev</strong> : <code>archcode-self/&lt;topic&gt;</code> — <em>&lt;topic&gt;</em> court, en kebab-case (ex. <code>agent-module-checker-v2</code>).</li>
+      <li><strong>Tags green</strong> : <code>green-&lt;YYYYMMDD&gt;-&lt;shortsha&gt;</code> — marquent un commit vert sur <code>main</code>.</li>
+    </ul>
+
+    <h3 style="font-size: 1.1rem; margin: 18px 0 8px;">Créer une branche de self-dev</h3>
+    <p>Remplace <code>&lt;topic&gt;</code> par un nom court décrivant le chantier.</p>
+    <pre><code>git checkout -b archcode-self/&lt;topic&gt;</code></pre>
+
+    <p>Exemples :</p>
+    <pre><code>archcode-self/agent-file-checker
+archcode-self/rollback-protocol</code></pre>
+
+    <h3 style="font-size: 1.1rem; margin: 18px 0 8px;">Fusion dans <code>main</code></h3>
+    <ol style="margin: 0 0 8px 20px;">
+      <li>Vérifie que les tests passent <strong>localement</strong>.</li>
+      <li>Rebase proprement sur <code>main</code>.</li>
+    </ol>
+    <pre><code>git fetch origin
+git rebase origin/main</code></pre>
+
+    <ol start="3" style="margin: 8px 0 8px 20px;">
+      <li>Ouvre une Pull Request vers <code>main</code>.</li>
+      <li>Merge uniquement si la CI est <strong>verte</strong>.</li>
+      <li>Crée un tag green après merge :</li>
+    </ol>
+    <pre><code>SHORTSHA=$(git rev-parse --short HEAD)
+DATE=$(date -u +%Y%m%d)
+git tag -a "green-${DATE}-${SHORTSHA}" -m "green build ${DATE} (${SHORTSHA})"
+git push origin "green-${DATE}-${SHORTSHA}"</code></pre>
+
+    <h3 style="font-size: 1.1rem; margin: 18px 0 8px;">Règles de protection recommandées</h3>
+    <ul style="margin: 0 0 0 22px;">
+      <li>Interdire le push direct sur <code>main</code>; PR obligatoires.</li>
+      <li>CI verte exigée avant merge; ≥ 1 review.</li>
+      <li>Interdire les <code>--force</code> sur <code>main</code> et les tags <code>green-*</code>.</li>
+    </ul>
+  </section>
+
+  <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
+
+  <!-- ======================================================= -->
+  <!-- 2) COMMITS                                              -->
+  <!-- ======================================================= -->
+  <section>
+    <h2 style="font-size: 1.35rem; margin-bottom: 8px;">2) Commit message standard — ARCHCode</h2>
+
+    <p>Assurer une traçabilité parfaite entre <strong>PlanLine</strong>, <strong>PatchBlock</strong>, <strong>module</strong>, <strong>statut</strong> et <strong>source</strong>.</p>
+
+    <h3 style="font-size: 1.1rem;">Ligne de sujet (obligatoire)</h3>
+    <p>Format exact :</p>
+    <pre><code>feat(mARCH): &lt;plan_line_id&gt; &lt;role&gt; &lt;module&gt;</code></pre>
+
+    <ul>
+      <li><code>feat</code> peut être remplacé par : <code>fix</code>, <code>chore</code>, <code>refactor</code>, <code>docs</code>, <code>test</code>, etc.</li>
+      <li><code>mARCH</code> : surface concernée (le MVP mARCHCode).</li>
+      <li><code>&lt;plan_line_id&gt;</code> : identifiant PlanLine (ex. <code>PL-013</code>).</li>
+      <li><code>&lt;role&gt;</code> : nom de l’agent ou rôle (ex. <code>agent_file_checker</code>).</li>
+      <li><code>&lt;module&gt;</code> : module ou répertoire (ex. <code>core/orchestrator</code>).</li>
+    </ul>
+
+    <h3 style="font-size: 1.1rem;">Corps structuré (obligatoire)</h3>
+    <pre><code>patch_id: PB-YYYYMMDD-NNNN
+status: accepted | rejected | partial
+contraintes: exigences techniques / NF importantes
+notes: remarques, contexte, liens
+commit_source: manual | agent | rollback-fix | brownfield-migration</code></pre>
+
+    <h3 style="font-size: 1.1rem;">Exemples</h3>
+    <p><strong>Ajout de fonctionnalité :</strong></p>
+    <pre><code>feat(mARCH): PL-013 agent_module_checker core/orchestrator
+
+patch_id: PB-20250812-1234
+status: accepted
+contraintes: keep idempotent
+notes: align KV with ModuleChecker
+commit_source: agent</code></pre>
+
+    <p><strong>Rollback :</strong></p>
+    <pre><code>chore(mARCH): PL-000 ops release
+
+patch_id: RB-20250812-00A1
+status: accepted
+contraintes: rollback to last green
+notes: see docs/ROLLBACK.md
+commit_source: rollback-fix</code></pre>
+  </section>
+
+  <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;">
+
+  <!-- ======================================================= -->
+  <!-- 3) ROLLBACK                                             -->
+  <!-- ======================================================= -->
+  <section>
+    <h2 style="font-size: 1.35rem; margin-bottom: 8px;">3) Rollback “green” — ARCHCode</h2>
+
+    <p>Revenir à un état stable et validé, avec code + artefacts restaurés.</p>
+
+    <h3>Définition d’un état green</h3>
+    <ul>
+      <li>Tests passés sur <code>main</code></li>
+      <li>Archive post-commit disponible :</li>
+    </ul>
+    <pre><code>.archcode/archive/patch_post_commit_&lt;sha&gt;.tar.gz</code></pre>
+    <ul>
+      <li>Tag <code>green-YYYYMMDD-shortsha</code> existant ou recréable</li>
+    </ul>
+
+    <h3>Procédure de rollback</h3>
+    <pre><code>git fetch --tags
+git tag -l "green-*" --sort=-creatordate | head -n 1
+
+TARGET_TAG=$(git tag -l "green-*" --sort=-creatordate | head -n 1)
+TARGET_SHA=$(git rev-list -n 1 "$TARGET_TAG")
+
+ARCHIVE=".archcode/archive/patch_post_commit_${TARGET_SHA}.tar.gz"
+test -f "$ARCHIVE" || { echo "Archive manquante: $ARCHIVE"; exit 2; }
+
+git checkout "$TARGET_SHA"
+tar -xzf "$ARCHIVE" -C .
+
+# Option A : merge de rollback
+git checkout main
+git merge --no-ff "$TARGET_SHA" -m "rollback: to ${TARGET_TAG}"
+git push origin main
+
+# Option B : reset forcé
+git checkout main
+git reset --hard "$TARGET_SHA"
+git push --force-with-lease origin main
+
+# Re-tagger
+SHORTSHA=$(git rev-parse --short HEAD)
+DATE=$(date -u +%Y%m%d)
+git tag -a "green-${DATE}-${SHORTSHA}" -m "green build ${DATE} (${SHORTSHA})"
+git push origin "green-${DATE}-${SHORTSHA}"</code></pre>
+  </section>
+</div>
+
+<hr>
+
+<div style="
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  line-height: 1.6; color:#1a1a1a; background:#fafafa; border:1px solid #e6e6e6;
+  border-radius:12px; padding:24px; margin:16px 0;">
+  <h1 style="margin:0 0 10px 0; font-size:1.4rem;">ARCHCode — Schéma Git (100% CLI)</h1>
+  <p style="margin:0 0 14px 0; color:#555;">Mise à jour : 12/08/2025 — Usage simple : <code>python -m marchcode.main tag-green</code> et <code>python -m marchcode.main rollback-green</code>.</p>
+
+  <h2 style="font-size:1.15rem; margin:16px 0 8px;">1) Vue d’ensemble</h2>
+  <pre style="background:#111; color:#f5f5f5; padding:14px 16px; border-radius:8px; overflow:auto;">
+<code>┌────────────────────────┐         ┌─────────────────────────┐
+│  CI verte sur main     │         │  CLI mARCHCode          │
+│  (build + tests OK)    │         │  (Typer)                │
+└────────────┬───────────┘         └────────────┬────────────┘
+             │                                   │
+             │                                   │
+             │                      tag-green    │   rollback-green
+             │                    (automatique)  │   (automatique)
+             │                                   │
+             ▼                                   ▼
+   ┌───────────────────────┐             ┌──────────────────────────────┐
+   │ scripts/green_tag.py  │             │ scripts/rollback_to_last_    │
+   │ 1) Archive .tar.gz    │             │   green.py                    │
+   │ 2) Tag green-…        │             │ 1) Trouve dernier green      │
+   └──────────┬────────────┘             │ 2) Vérifie archive + meta    │
+              │                          │ 3) Restaure artefacts        │
+              │                          │ 4) merge/reset + push        │
+              ▼                          └──────────────┬───────────────┘
+   .archcode/archive/patch_                           (retag optionnel après CI)
+   post_commit_&lt;sha&gt;.tar.gz +                       </code>
+  </pre>
+
+  <h2 style="font-size:1.15rem; margin:20px 0 8px;">2) Flux “tag-green” (création d’un état stable)</h2>
+  <ol style="margin:0 0 10px 20px;">
+    <li>Tu lances : <code>python -m marchcode.main tag-green</code>.</li>
+    <li>Le script crée l’archive : <code>.archcode/archive/patch_post_commit_&lt;sha&gt;.tar.gz</code>.</li>
+    <li>Il génère <code>.archcode/archive/metadata_&lt;shortsha&gt;.yaml</code> (sha, auteur, date, branche, liens vers docs).</li>
+    <li>Il crée et pousse le tag : <code>green-&lt;YYYYMMDD&gt;-&lt;shortsha&gt;</code>.</li>
+  </ol>
+  <pre style="background:#111; color:#f5f5f5; padding:14px 16px; border-radius:8px; overflow:auto;">
+<code># Commande unique
+python -m marchcode.main tag-green
+
+# Artefacts créés
+.archcode/archive/patch_post_commit_&lt;sha&gt;.tar.gz
+.archcode/archive/metadata_&lt;shortsha&gt;.yaml
+
+# Tag poussé
+green-&lt;YYYYMMDD&gt;-&lt;shortsha&gt;</code>
+  </pre>
+
+  <h2 style="font-size:1.15rem; margin:20px 0 8px;">3) Flux “rollback-green” (retour au dernier état stable)</h2>
+  <ol style="margin:0 0 10px 20px;">
+    <li>Tu lances : <code>python -m marchcode.main rollback-green</code> (par défaut en <em>merge</em>).</li>
+    <li>Le script détecte le dernier tag <code>green-*</code>, lit la metadata YAML si présente.</li>
+    <li>Il vérifie l’archive, restaure les artefacts, puis applique la stratégie :
+      <ul>
+        <li><strong>merge</strong> (recommandé) : garde l’historique récent + commit “rollback: to …”.</li>
+        <li><strong>reset</strong> : remet <code>main</code> au SHA exact (force-push protégé).</li>
+      </ul>
+    </li>
+    <li>Après CI verte, tu peux re-créer un tag green si nécessaire.</li>
+  </ol>
+  <pre style="background:#111; color:#f5f5f5; padding:14px 16px; border-radius:8px; overflow:auto;">
+<code># Simulation sans rien changer (safe)
+python -m marchcode.main rollback-green --dry-run
+
+# Rollback en merge (par défaut)
+python -m marchcode.main rollback-green --strategy merge
+
+# Rollback en reset (cas exceptionnel)
+python -m marchcode.main rollback-green --strategy reset</code>
+  </pre>
+
+  <h2 style="font-size:1.15rem; margin:20px 0 8px;">4) Où sont les règles “papier” (contrat de référence) ?</h2>
+  <ul style="margin:0 0 12px 20px;">
+    <li><code>docs/BRANCHING.md</code> — noms des branches, tag green.</li>
+    <li><code>docs/COMMITS.md</code> — format strict des messages (sujet + corps clés/valeurs).</li>
+    <li><code>docs/ROLLBACK.md</code> — définition d’un “green” + procédure standard.</li>
+  </ul>
+  <p style="margin:0;">Les scripts appliquent ces règles automatiquement. Tu n’as plus d’actions Git “à la main”.</p>
+
+  <h2 style="font-size:1.15rem; margin:20px 0 8px;">5) Intégration CI (optionnelle, plus tard)</h2>
+  <ul style="margin:0 0 0 20px;">
+    <li>Après build/tests OK sur <code>main</code>, appeler <code>python -m marchcode.main tag-green</code> pour sceller l’état.</li>
+    <li>En cas d’incident en prod, déclencher <code>python -m marchcode.main rollback-green</code> (merge par défaut).</li>
+  </ul>
+</div>
+
+
+<hr>
+
+<div style="
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background:#fff; border:2px solid #333; border-radius:8px;
+  padding:20px; width:360px; line-height:1.5;">
+  <h2 style="margin-top:0; font-size:1.3rem; text-align:center;">ARCHCode — Mini-Checklist Git</h2>
+  <ol style="margin:0; padding-left:20px;">
+    <li><strong>CI verte</strong> sur <code>main</code> ? → oui.</li>
+    <li><strong>Sceller l’état stable</strong> :
+      <pre style="background:#111; color:#f5f5f5; padding:6px; border-radius:4px; margin:4px 0;">
+<code>python -m marchcode.main tag-green</code></pre>
+    </li>
+    <li>Vérifier création de :
+      <ul style="margin:0; padding-left:16px;">
+        <li>Archive <code>.tar.gz</code></li>
+        <li>Metadata <code>.yaml</code></li>
+        <li>Tag <code>green-…</code> poussé</li>
+      </ul>
+    </li>
+    <li><strong>Incident en prod ?</strong></li>
+    <li><em>Dry-run</em> rollback :
+      <pre style="background:#111; color:#f5f5f5; padding:6px; border-radius:4px; margin:4px 0;">
+<code>python -m marchcode.main rollback-green --dry-run</code></pre>
+    </li>
+    <li>Si OK → rollback en <em>merge</em> :
+      <pre style="background:#111; color:#f5f5f5; padding:6px; border-radius:4px; margin:4px 0;">
+<code>python -m marchcode.main rollback-green --strategy merge</code></pre>
+    </li>
+    <li>Relancer la CI → attendre verte.</li>
+    <li>Si besoin, re-<code>tag-green</code>.</li>
+    <li>⚠️ <em>reset</em> réservé aux cas extrêmes.</li>
+  </ol>
+</div>

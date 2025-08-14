@@ -45,6 +45,7 @@ Contrats respectés
 
 @dataclass
 class FileStat:
+    """Statistiques élémentaires d’un fichier modifié (lignes ajoutées/supprimées)."""
     file: str
     added: int
     deleted: int
@@ -52,6 +53,7 @@ class FileStat:
 
 @dataclass
 class DiffStatsData:
+    """Agrégat de métriques de diff Git (taille patch, nb fichiers, binaire, détail par fichier)."""
     files_changed: int
     loc_added: int
     loc_deleted: int
@@ -209,7 +211,7 @@ def compute_diff_stats(
 def compute_diffstats_for_paths(paths: List[str], repo_root: str | None = None) -> DiffStatsData:
     """
     Raccourci pratique : calcule les stats *worktree vs HEAD*,
-    limités aux chemins fournis (non-staged).
+    limitées aux chemins fournis (non-staged).
     """
     root = repo_root or "."
     return compute_diff_stats(

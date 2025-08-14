@@ -1,6 +1,5 @@
 # core/self_dev_policy.py
 
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -51,8 +50,9 @@ Exemple d’utilisation
         raise RuntimeError("\n".join(violations))
 """
 
+
 class DiffStats(Protocol):
-    """Contrat minimal attendu par la policy (à fournir par l’adaptateur Git/FS)."""
+    """Contrat minimal attendu par la policy (fourni par l’adaptateur Git/FS)."""
     files_changed: int
     loc_added: int
     loc_deleted: int
@@ -62,12 +62,23 @@ class DiffStats(Protocol):
     # Optionnel : extensions détectées
     # exts: List[str]
 
+
 # --- Utils YAML très simple (fallback JSON) ---
 
 def _parse_lenient_yaml(text: str) -> dict:
     """
-    Parseur 'pauvre' : tente JSON d'abord, sinon YAML ultra-simple.
-    Suffisant pour notre template (clé: valeur, listes - item).
+    Parse une configuration en essayant d'abord JSON, puis un YAML minimaliste.
+
+    Règles YAML prises en charge (volontairement limitées) :
+      - paires clé: valeur sur une ligne
+      - listes avec "- item"
+      - imbrication par indentation (2 espaces recommandés)
+
+    Args:
+        text: Contenu de la policy au format JSON ou YAML simple.
+
+    Returns:
+        dict: Représentation Python tolérante de la configuration.
     """
     text = text.strip()
     # 1) tentative JSON stricte
@@ -105,9 +116,7 @@ def _parse_lenient_yaml(text: str) -> dict:
             key = k.strip()
             val_text = v.strip()
             if val_text == "":
-                # nouvelle map ou liste
-                # heuristique : si la ligne suivante commence par "-" on crée une liste
-                # ici, on crée une map par défaut
+                # nouvelle map ou liste ; ici on crée une map par défaut
                 new_map: dict = {}
                 if isinstance(container, dict):
                     container[key] = new_map
@@ -122,7 +131,17 @@ def _parse_lenient_yaml(text: str) -> dict:
                     container.append({key: val})
     return data
 
+
 def _coerce_scalar(s: str):
+    """
+    Convertit naïvement une chaîne YAML en scalaire Python (bool, int, float, str).
+
+    Args:
+        s: Texte à convertir.
+
+    Returns:
+        object: Bool/int/float si possible, sinon str nettoyée des guillemets.
+    """
     low = s.lower()
     if low in ("true", "false"):
         return low == "true"
@@ -133,46 +152,66 @@ def _coerce_scalar(s: str):
     except Exception:
         return s.strip('"').strip("'")
 
+
 # --- Modèle de policy ---
 
 @dataclass
 class Limits:
+    """Seuils de rayon d'impact autorisés pour un patch (blast radius)."""
     max_files_changed: int = 5
     max_loc_added: int = 160
     max_loc_deleted: int = 80
     max_patch_size_bytes: int = 20000
 
+
 @dataclass
 class Paths:
+    """Listes de patterns de chemins autorisés/interdits (fnmatch)."""
     forbidden: List[str] = field(default_factory=lambda: ["infra/**", "secrets/**"])
     allowed: List[str] = field(default_factory=list)  # si non vide -> liste blanche stricte
 
+
 @dataclass
 class Markers:
+    """Contraintes sur la présence des balises de PatchBlock dans le code généré."""
     require_begin_end: bool = True
     begin: str = "#{begin_meta:"
     end: str = "#{end_meta}"
 
+
 @dataclass
 class Binaries:
+    """Règles relatives aux fichiers binaires et extensions interdites."""
     allow_binary_changes: bool = False
     forbidden_extensions: List[str] = field(default_factory=lambda: [".png", ".jpg", ".pdf", ".exe", ".dll", ".so"])
 
+
 @dataclass
 class Budgets:
+    """Budgets de ressources pour l'exécution (LLM/timing/retry)."""
     llm_tokens_max: int = 0
     total_run_timeout_seconds: int = 180
     checker_timeout_seconds: int = 60
     retry_limit: int = 2
 
+
 @dataclass
 class CommitGate:
+    """Conditions minimales à respecter avant de permettre un commit."""
     require_file_checker_ok: bool = True
     module_status_allow: List[str] = field(default_factory=lambda: ["ok", "partial_ok"])
     max_partial_ok_allowed: int = 2
 
+
 @dataclass
 class SelfDevPolicy:
+    """
+    Représentation d’une politique d'auto-développement et de ses règles d’évaluation.
+
+    Attributs principaux :
+        mode: 'enforce' | 'warn' | 'off'
+        require_clone: exige une branche de travail de type archcode-self/*
+    """
     policy_id: str = "SDP-0001"
     version: int = 1
     mode: str = "enforce"          # enforce | warn | off
@@ -190,8 +229,19 @@ class SelfDevPolicy:
     # ---------- Chargement ----------
     @classmethod
     def load_from_yaml_text(cls, text: str) -> "SelfDevPolicy":
+        """
+        Construit une SelfDevPolicy à partir d’un texte YAML/JSON (tolérant).
+
+        Args:
+            text: Configuration de policy au format YAML simple ou JSON.
+
+        Returns:
+            SelfDevPolicy: Instance initialisée depuis le contenu fourni.
+        """
         raw = _parse_lenient_yaml(text)
+
         def get(path, default=None):
+            """Accès utilitaire 'a.b.c' dans un dict imbriqué, avec valeur par défaut."""
             cur = raw
             for p in path.split("."):
                 if isinstance(cur, dict) and p in cur:
@@ -249,6 +299,20 @@ class SelfDevPolicy:
         branch_name: Optional[str] = None,
         partial_ok_count_so_far: int = 0,
     ) -> Tuple[bool, List[str]]:
+        """
+        Évalue un PatchBlock selon la politique courante.
+
+        Args:
+            pb: PatchBlock généré/contrôlé par le pipeline.
+            diff: Métriques de diff (files_changed, loc_added, etc.).
+            branch_name: Nom de branche pour vérifier la règle de clone.
+            partial_ok_count_so_far: Nombre de cas 'partial_ok' cumulés (quota).
+
+        Returns:
+            (ok, violations):
+                ok: True si le patch est acceptable vis-à-vis de la policy (ou si mode warn/off).
+                violations: liste textuelle des violations détectées.
+        """
         v: List[str] = []
 
         # Mode off → toujours ok (mais on calcule quand même les violations pour logs)
@@ -306,4 +370,3 @@ class SelfDevPolicy:
 
         ok = len(v) == 0 or mode == "off" or mode == "warn"
         return ok, v
-

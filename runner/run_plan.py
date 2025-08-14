@@ -20,7 +20,18 @@ from core.git_diffstats import ensure_branch, stage_and_commit
 try:
     from adapters.git_adapter import inject_commit_sha_into_meta  # type: ignore
 except Exception:
-    def inject_commit_sha_into_meta(pb, sha: Optional[str]) -> None:  # no-op tolérant
+
+    def inject_commit_sha_into_meta(pb, sha: Optional[str]) -> None:
+        """
+        Injecte le SHA de commit dans `pb.meta.commit_sha` si possible (fallback no-op).
+
+        Args:
+            pb: PatchBlock (ou objet duck-typed) dont l'attribut `meta` peut contenir `commit_sha`.
+            sha: SHA de commit à injecter (ou None pour ne rien faire).
+
+        Returns:
+            None. Effet de bord tolérant sur `pb.meta` si l'attribut existe.
+        """
         return
 
 from core.archiver import (
@@ -59,6 +70,34 @@ Notes
 
 
 def run_plan(ep_path: str, repo_root: str, *, archive_dir: Optional[str] = None) -> None:
+    """
+    Exécute un plan d’exécution mARCHCode de bout en bout (MVP local).
+
+    Pipeline:
+        1) Archive les métadonnées de run et le plan source.
+        2) Charge l'ExecutionPlan typé.
+        3) (Best-effort) prépare la branche Git de travail.
+        4) Pour chaque PlanLine:
+            - ACWP → prompt
+            - ACW → PatchBlock
+            - Checkers fichier & module
+            - (si OK) apply FS + commit (best-effort) + archivage post-commit
+
+    Args:
+        ep_path: Chemin vers le fichier `execution_plan.yaml`.
+        repo_root: Racine du dépôt cible (chemins d'écriture/commit relatifs).
+        archive_dir: Dossier des artefacts du run (créé si absent). Si None,
+            un dossier `.arch_runs/<timestamp>` sera créé.
+
+    Returns:
+        None. Les effets se matérialisent sur le FS, Git (si dispo) et dans `archive_dir`.
+
+    Raises:
+        FileNotFoundError: si `ep_path` est introuvable (via chargeur).
+        ValueError: si la structure du plan est invalide (via chargeur).
+        Toute autre exception est capturée localement lors des étapes best-effort
+        (ex. Git non initialisé) pour permettre la poursuite du run.
+    """
     # --- Prépare le répertoire d’archives du run ---
     if not archive_dir:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -81,7 +120,8 @@ def run_plan(ep_path: str, repo_root: str, *, archive_dir: Optional[str] = None)
 
     # Branche de travail (si Git est initialisé)
     try:
-        ensure_branch(repo_root=repo_root)  # impl réelle dans core.git_diffstats
+        # NOTE: impl réelle dans core.git_diffstats ; appel conservé (best-effort).
+        ensure_branch(repo_root=repo_root)  # type: ignore[call-arg]
         print("• Branche de travail prête (archcode-self/… ou équivalent)")
         append_console_log("[git] ensure_branch ok", run_dir=archive_dir)
     except Exception as e:

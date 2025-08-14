@@ -55,6 +55,7 @@ Notes d’implémentation
 
 
 class Action(str, Enum):
+    """Action d'orchestration choisie après vérifications."""
     APPLY = "apply"        # intégrer le patch dans le FS + commit
     RETRY = "retry"        # renvoyer vers agent_code_writer (régénération ciblée)
     ROLLBACK = "rollback"  # ignorer/retirer ce patch et journaliser
@@ -62,6 +63,7 @@ class Action(str, Enum):
 
 @dataclass
 class Decision:
+    """Décision finale issue du router après passage des checkers."""
     action: Action
     global_status: str                   # ok | partial_ok | rejected
     next_action: str                     # accept | retry | rollback (provenant du ModuleChecker)
@@ -71,15 +73,18 @@ class Decision:
     module_comment: Optional[str] = None # comment_agent_module_checker
 
 
+# Type alias pour un extracteur/normaliseur de raisons (ex. LLM léger)
 Reasoner = Callable[[str], List[str]]
 
 
 def _heuristic_reason_split(chunks: Iterable[str]) -> List[str]:
     """
-    Heuristique robuste :
-      - split sur | ; / • (puces) et sauts de ligne
-      - strip des tirets/espaces
-      - filtre doublons et bribes trop longues
+    Normalise une liste de fragments textuels en raisons courtes et dédupliquées.
+
+    Règles :
+      - découpe sur | ; \n et puces « • »
+      - strip des tirets/espaces et ponctuation courante
+      - filtre les doublons et tronque les fragments trop longs
     """
     raw: List[str] = []
     for blob in chunks:
@@ -106,12 +111,10 @@ def _collect_reasons(
     reasoner: Optional[Reasoner] = None
 ) -> List[str]:
     """
-    Extraction des 'raisons' depuis les commentaires agents.
-    - Par défaut : heuristique locale (_heuristic_reason_split)
-    - Option : reasoner(text) → List[str] pour activer un LLM/switcher externe
+    Agrège et normalise les raisons issues des commentaires file/module checkers.
 
-    Convention d’agrégation : le reasoner reçoit un texte unique fusionnant
-    comment_agent_file_checker et comment_agent_module_checker.
+    Si `reasoner` est fourni, il est appelé avec le texte fusionné (file+module),
+    puis ses résultats sont repassés dans l’heuristique pour garantir la forme.
     """
     fc = (pb.meta.comment_agent_file_checker or "").strip()
     mc = (pb.meta.comment_agent_module_checker or "").strip()
@@ -138,11 +141,14 @@ def _collect_reasons(
 
 def route_after_checks(pb: PatchBlock) -> Decision:
     """
-    Traduit l’état du PatchBlock en décision opérationnelle simple.
+    Mappe (global_status, next_action, error_category) → Action.
+
     Priorité :
       1) Si pb.error_category est défini → utiliser error_policy.map_error_to_next_action()
-      2) Sinon → logique manuelle (fallback MVP) sur (pb.global_status, pb.next_action)
-    Hypothèse : pb a déjà été passé par run_local_checkers().
+      2) Sinon → logique manuelle (fallback MVP) :
+           - ok + accept  → APPLY
+           - rejected OU rollback → ROLLBACK
+           - sinon → RETRY
     """
     gs = (pb.global_status or "").lower()
     na = (pb.next_action or "").lower()
@@ -198,11 +204,12 @@ def route_after_checks(pb: PatchBlock) -> Decision:
 
 def verify_and_route(pb: PatchBlock) -> tuple[PatchBlock, Decision]:
     """
-    Point d’entrée unique (phase 3 locale) :
-      1) Exécute les deux checkers sur le PatchBlock
-      2) Produit une décision d’orchestration simple (APPLY / RETRY / ROLLBACK)
+    Pipeline minimal d’orchestration locale :
+      1) Exécute les deux checkers (fichier + module) sur `pb`
+      2) Dérive la décision (APPLY / RETRY / ROLLBACK) via `route_after_checks`
 
-    → À appeler depuis le runner/CLI pour décider de la suite (apply FS, renvoi ACW, rollback).
+    Returns:
+        tuple[PatchBlock, Decision]: Le PatchBlock annoté + la décision finale.
     """
     pb = run_local_checkers(pb)
     decision = route_after_checks(pb)

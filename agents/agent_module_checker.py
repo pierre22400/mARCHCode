@@ -61,9 +61,11 @@ _END_MARK   = "#{end_meta}"
 # ---------------------------- HEURISTIQUE V2 ----------------------------
 
 def _looks_like_function(code: str) -> bool:
+    """Retourne True si le bloc de code contient visiblement une signature de fonction (`def `)."""
     return "def " in (code or "")
 
 def _role_is_plausible(role: Optional[str], code: str) -> bool:
+    """Valide grossièrement la cohérence entre `role` et le contenu du code (MVP tolérant)."""
     r = (role or "").lower()
     if not r:
         return True  # pas de rôle → pas bloquant au niveau module
@@ -131,6 +133,7 @@ def _offline_module_decision(pb: PatchBlock) -> Tuple[str, str, List[str], str, 
 
 
 def _dedupe_short(chunks: List[str]) -> List[str]:
+    """Déduplique/normalise une liste de raisons courtes (split sur `|`, trim, limite 200 chars)."""
     raw = []
     for c in chunks:
         if not c:
@@ -150,6 +153,7 @@ def _dedupe_short(chunks: List[str]) -> List[str]:
 # ------------------------------- LLM MODE -------------------------------
 
 def _build_modulecheck_prompt(pb: PatchBlock) -> str:
+    """Construit le prompt KV destiné au ModuleChecker LLM (résumé + patch encodé)."""
     role = pb.meta.role or "unknown"
     file = pb.meta.file or "unknown.py"
     plan_line_id = pb.meta.plan_line_id or "UNKNOWN"
@@ -189,6 +193,7 @@ def _build_modulecheck_prompt(pb: PatchBlock) -> str:
     return "\n".join(lines)
 
 def _build_plan_review_prompt(ep_text: str) -> str:
+    """Construit le prompt KV de revue d'execution_plan (PLAN_OK / REASONS / ACTION / AFFECTED_IDS)."""
     lines: List[str] = []
     lines.append("Tu es un validateur FORMEL d'execution_plan (pré-génération). Réponds STRICTEMENT en KV :")
     lines.append("PLAN_OK: yes|no")
@@ -257,6 +262,7 @@ def _call_llm(prompt: str) -> str:
     )
 
 def _parse_kv(text: str) -> dict:
+    """Parse une réponse KV (une ligne `key: value` par ligne) en dict normalisé en UPPER keys."""
     out = {}
     for raw in text.splitlines():
         if ":" not in raw:
@@ -266,6 +272,7 @@ def _parse_kv(text: str) -> dict:
     return out
 
 def _normalize_patch_decision(kv: dict) -> Tuple[str, str, List[str], str, str, bool, str]:
+    """Normalise et sécurise le mapping KV → (status, next_action, reasons, strategy, comment, reassess, reco)."""
     status = kv.get("STATUS", "rejected").lower()
     if status not in _ALLOWED_STATUS:
         status = "rejected"
@@ -290,6 +297,7 @@ def _normalize_patch_decision(kv: dict) -> Tuple[str, str, List[str], str, str, 
     return status, next_action, reasons, strategy, comment, reassess_flag, reassess_reco
 
 def _build_module_reassessment_yaml(module_id: str, reasons: List[str], recommendation: str, spec_feedback: str = "") -> str:
+    """Génère le contenu YAML pour `module_reassessment_request.yaml` basé sur raisons/recommandation."""
     reasons_lines = "\n".join([f"  - {r}" for r in reasons]) if reasons else ""
     spec = f"\nspec_feedback: |\n  {spec_feedback}\n" if spec_feedback else "\n"
     return (

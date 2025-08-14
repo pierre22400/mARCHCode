@@ -66,8 +66,18 @@ Contrats & limites MVP
 
 def _extract_constraints_summary(pb: PatchBlock) -> str:
     """
-    Petite heuristique: essaie d'extraire 2–3 contraintes visibles depuis meta.commentaires.
-    (MVP: on scanne les commentaires des checkers pour des tokens connus)
+    Retourne un court résumé des contraintes détectées dans les commentaires
+    des checkers (heuristique MVP).
+
+    L’implémentation scanne `pb.meta.comment_agent_file_checker` et
+    `pb.meta.comment_agent_module_checker` pour y chercher quelques tokens
+    (pep8, typing=strict, isort, etc.).
+
+    Args:
+        pb: PatchBlock enrichi par les checkers.
+
+    Returns:
+        Chaîne résumant 0..n contraintes (ex: "pep8, typing=strict") ou "n/a".
     """
     meta_text = " ".join(
         [
@@ -88,10 +98,20 @@ def build_commit_message(
     extra_notes: str = "",
 ) -> str:
     """
-    Construit un message de commit conforme au modèle de la roadmap.
+    Construit un message de commit normalisé pour la roadmap mARCHCode.
+
     Normalisations:
-      - role → lowercase
-      - module inclus s'il est disponible
+      - `role` abaissé en minuscules
+      - `module` inclus si disponible
+      - ajout d’un résumé diff (blast radius) si `diff` fourni
+
+    Args:
+        pb: PatchBlock à committer.
+        diff: Statistiques de diff calculées (facultatif).
+        extra_notes: Notes additionnelles à inclure (facultatif).
+
+    Returns:
+        Message de commit multi-lignes prêt pour `git commit -m`.
     """
     pl = pb.meta.plan_line_id or "PL-UNKNOWN"
     role_low = (pb.meta.role or "role?").lower()
@@ -124,6 +144,15 @@ def build_commit_message(
 
 @dataclass
 class GitApplyOptions:
+    """
+    Options pour l’application/commit Git d’un PatchBlock.
+
+    Attributes:
+        repo_root: Racine du repo Git (chemin local).
+        branch_name: Nom de la branche cible (créée/checkout si nécessaire).
+        push: Si True, effectue un `git push` après le commit.
+        dry_run: Si True, exécute sans aucune action Git (retourne "DRY-RUN").
+    """
     repo_root: str = "."
     branch_name: str = "archcode-self/preview"
     push: bool = False
@@ -132,9 +161,16 @@ class GitApplyOptions:
 
 def write_patch_to_fs(pb: PatchBlock, *, repo_root: str) -> str:
     """
-    MVP simple: écrit *tout le contenu du patch* dans le fichier cible (création si absent).
-    On choisit volontairement la simplicité (pas d'insertion partielle).
-    Retourne le chemin absolu écrit.
+    Écrit *tout le contenu* du patch `pb.code` dans le fichier cible (création si absent).
+
+    Choix MVP: full-write (pas d’insertion partielle).
+
+    Args:
+        pb: PatchBlock contenant le code balisé.
+        repo_root: Racine du repo.
+
+    Returns:
+        Chemin absolu du fichier écrit.
     """
     rel = pb.meta.file
     if not rel:
@@ -147,15 +183,21 @@ def write_patch_to_fs(pb: PatchBlock, *, repo_root: str) -> str:
 
 def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
     """
-    1) (option) Checkout/Crée la branche (skip si dry_run)
-    2) Écrit le fichier (MVP: full-write)
-    3) Calcule diffstats ciblés
-    4) (option) Commit (skip si dry_run)
-    5) (option) Push
+    Applique le patch puis commit/push selon options.
 
-    Retour:
-      - commit SHA (str) si non dry-run,
-      - "DRY-RUN" si dry_run=True.
+    Pipeline:
+      1) (option) ensure_branch (skip si dry_run)
+      2) write_patch_to_fs (full-write)
+      3) compute_diffstats_for_paths (ciblé)
+      4) (option) stage_and_commit (skip si dry_run)
+      5) (option) optional_push
+
+    Args:
+        pb: PatchBlock validé par les checkers/policy.
+        options: Paramètres d’application/commit (branche, push, dry-run…).
+
+    Returns:
+        SHA de commit si non dry-run, sinon la chaîne "DRY-RUN".
     """
     if not pb.meta.file:
         raise ValueError("PatchBlock.meta.file est requis pour commit Git.")
@@ -183,7 +225,7 @@ def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
     # 3) diffstats ciblés
     diff = compute_diffstats_for_paths([pb.meta.file], repo_root=options.repo_root)
 
-    # build commit message
+    # message de commit
     message = build_commit_message(pb, diff=diff)
 
     # 4) commit / 5) push (si non dry-run)
@@ -196,7 +238,7 @@ def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
             _archive_patch_post_commit(pb, previous_sha, sha, repo_root=options.repo_root)
         if options.push:
             optional_push(options.branch_name, repo_root=options.repo_root)
-        # inject commit sha dans meta
+        # inject commit sha dans meta (best-effort)
         try:
             pb.meta.commit_sha = sha
         except Exception:
@@ -209,7 +251,13 @@ def apply_and_commit_git(pb: PatchBlock, *, options: GitApplyOptions) -> str:
 
 def rollback_file_changes(paths: Sequence[str], *, repo_root: str) -> None:
     """
-    Rejette les changements non commités sur les chemins donnés.
+    Rejette les modifications non commités sur une liste de chemins.
+
+    Équivalent à `git checkout -- <paths>`.
+
+    Args:
+        paths: Séquence de chemins à restaurer.
+        repo_root: Racine du repo Git.
     """
     from core.git_diffstats import _run_git  # reuse interne
     if not paths:
@@ -221,11 +269,15 @@ def rollback_file_changes(paths: Sequence[str], *, repo_root: str) -> None:
 
 def safe_rollback_to_last_green(*, repo_root: str) -> None:
     """
-    Reviens au dernier commit "green" connu.
-    Hypothèse MVP :
-      - un commit est "green" si un patch_post_commit archivé est présent
-        (par ex. dans .archcode/archive/patch_post_commit_<sha>.tar.gz)
-      - on utilise le SHA cible de cette archive pour faire un checkout forcé.
+    Effectue un retour au dernier commit “green” connu (MVP).
+
+    Hypothèses:
+      - Un commit est “green” si une archive `.archcode/archive/patch_post_commit_<sha>.tar.gz`
+        existe pour ce SHA.
+      - On checkout directement le SHA de la dernière archive (par date de mtime).
+
+    Args:
+        repo_root: Racine du repo Git.
     """
     from core.git_diffstats import _run_git
     archive_dir = Path(repo_root) / ".archcode" / "archive"
@@ -252,11 +304,17 @@ def safe_rollback_to_last_green(*, repo_root: str) -> None:
 
 # --- Helpers internes ---
 
-
 def _archive_patch_post_commit(pb: PatchBlock, prev_sha: str, new_sha: str, *, repo_root: str) -> None:
     """
-    Archive post-commit minimaliste pour rollback futur.
-    (MVP) On crée un tar.gz du diff entre prev_sha et new_sha.
+    Archive minimaliste post-commit pour faciliter un rollback futur.
+
+    MVP: archive uniquement le fichier modifié par le PatchBlock.
+
+    Args:
+        pb: PatchBlock qui vient d’être commit.
+        prev_sha: SHA précédant le commit (HEAD capturé).
+        new_sha: SHA du nouveau commit.
+        repo_root: Racine du repo Git.
     """
     import tarfile
 
@@ -274,12 +332,13 @@ def _archive_patch_post_commit(pb: PatchBlock, prev_sha: str, new_sha: str, *, r
 
 def inject_commit_sha_into_meta(pb: PatchBlock, commit_sha: Optional[str]) -> None:
     """
-    Rétro-compatibilité runner :
-    - Some versions de run_plan injectent le SHA de commit dans pb.meta.
-    - Ici on fait un best-effort tolérant (no-op si attributs absents).
-    Effets :
-      • pb.meta.commit_sha = <sha> (si possible)
-      • append_history("git_commit=<sha>") (si disponible)
+    Insère le `commit_sha` dans `pb.meta.commit_sha` (si possible) et trace l’info dans l’history.
+
+    Best-effort/compat : ignore silencieusement si les attributs ne sont pas disponibles.
+
+    Args:
+        pb: PatchBlock à enrichir.
+        commit_sha: SHA de commit à injecter (si non nul).
     """
     if not commit_sha:
         return

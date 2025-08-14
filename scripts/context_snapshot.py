@@ -77,10 +77,11 @@ DEFAULT_OUT = ".archcode/context_snapshot.yaml"
 # ------------------------ Utilitaires YAML -----------------------
 
 class _LiteralDumper(yaml.SafeDumper):
-    """Dumper: chaînes multi-lignes en bloc `|` quand pertinent."""
+    """Dumper: sérialise les chaînes multi-lignes en bloc littéral `|` quand pertinent."""
 
 
 def _repr_str(dumper: yaml.Dumper, data: str):  # type: ignore[name-defined]
+    """Représente une chaîne en YAML, en forçant le style `|` si multi-ligne."""
     style = "|" if ("\n" in data) else None
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
@@ -91,6 +92,7 @@ _LiteralDumper.add_representer(str, _repr_str)
 # ------------------ Extraction arborescence ----------------------
 
 def iter_files(root: Path) -> List[Path]:
+    """Retourne la liste triée des chemins (fichiers) sous `root`, en ignorant IGNORED_DIRS."""
     files: List[Path] = []
     for p in sorted(root.rglob("*")):
         if p.is_dir():
@@ -106,12 +108,12 @@ def iter_files(root: Path) -> List[Path]:
 
 
 def ascii_tree(root: Path) -> str:
-    """
-    Construit un 'tree' ASCII minimal (dossiers/ fichiers), en ignorant IGNORED_DIRS.
-    """
+    """Construit un arbre ASCII minimal (dossiers/fichiers) en ignorant IGNORED_DIRS."""
     lines: List[str] = [str(root.resolve())]
+
     # construire une carte dossier→enfants
     def children(d: Path) -> List[Path]:
+        """Retourne les enfants immédiats d’un dossier, triés (dossiers avant fichiers)."""
         ch = []
         for p in sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
             if any(seg in IGNORED_DIRS for seg in p.relative_to(root).parts):
@@ -120,6 +122,7 @@ def ascii_tree(root: Path) -> str:
         return ch
 
     def walk(d: Path, prefix: str = "") -> None:
+        """Parcourt récursivement l’arborescence et remplit `lines` avec l’ASCII tree."""
         kids = children(d)
         for i, k in enumerate(kids):
             joint = "└── " if i == len(kids) - 1 else "├── "
@@ -136,6 +139,7 @@ def ascii_tree(root: Path) -> str:
 
 @dataclass
 class RouteInfo:
+    """Description d’une route détectée (framework + verbe/méthode + chemin)."""
     framework: str
     method: Optional[Union[str, List[str]]] = None
     path: Optional[str] = None
@@ -143,6 +147,7 @@ class RouteInfo:
 
 @dataclass
 class DefInfo:
+    """Informations structurées sur une définition (fonction/méthode) extraite via AST."""
     qualname: str
     name: str
     lineno: int
@@ -153,10 +158,7 @@ class DefInfo:
 
 
 def _first_toplevel_string_after_imports(module: ast.Module) -> Optional[str]:
-    """
-    Retourne la 1ère chaîne toplevel (Expr Constant str), même si elle est placée
-    après des imports. C’est notre "bannière" mARCHCode.
-    """
+    """Retourne la 1ère chaîne toplevel (Expr Constant str), même si placée après des imports."""
     for node in module.body:
         if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant):
             if isinstance(node.value.value, str):
@@ -165,8 +167,9 @@ def _first_toplevel_string_after_imports(module: ast.Module) -> Optional[str]:
 
 
 def _decorator_to_text(dec: ast.AST) -> str:
-    """Convertit un décorateur AST en texte lisible (best-effort)."""
+    """Convertit un décorateur AST en chemin lisible (ex.: router.get → 'router.get')."""
     def name_of(n: ast.AST) -> str:
+        """Résout récursivement un identifiant lisible à partir d’un nœud AST."""
         if isinstance(n, ast.Name):
             return n.id
         if isinstance(n, ast.Attribute):
@@ -178,12 +181,14 @@ def _decorator_to_text(dec: ast.AST) -> str:
 
 
 def _literal_str(node: ast.AST) -> Optional[str]:
+    """Retourne la valeur str d’un littéral AST, sinon None."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
 
 
 def _literal_methods_from_kwargs(call: ast.Call) -> Optional[List[str]]:
+    """Extrait une liste de méthodes HTTP depuis les kwargs `methods`/`method` (Flask)."""
     for kw in call.keywords:
         if kw.arg in {"methods", "method"}:
             val = kw.value
@@ -200,7 +205,9 @@ def _literal_methods_from_kwargs(call: ast.Call) -> Optional[List[str]]:
 
 def _detect_route(dec: ast.AST) -> Optional[RouteInfo]:
     """
-    Heuristique de détection :
+    Détecte une route à partir d’un décorateur.
+
+    Heuristiques supportées :
       - FastAPI : @router.get("/path"), @app.post("/x")
       - Flask   : @app.route("/path", methods=["GET"])
       - Typer   : @app.command()
@@ -236,22 +243,29 @@ def _detect_route(dec: ast.AST) -> Optional[RouteInfo]:
 
 
 class _DefCollector(ast.NodeVisitor):
+    """Visiteur AST qui collecte les définitions (fonctions/méthodes) et métadonnées associées."""
+
     def __init__(self) -> None:
+        """Initialise la pile de qualnames et le conteneur de résultats."""
         self.stack: List[str] = []
         self.defs: List[DefInfo] = []
 
     def visit_ClassDef(self, node: ast.ClassDef) -> Any:
+        """Empile le nom de classe, visite le corps, puis dépile (construction du qualname)."""
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
+        """Gère une fonction synchrone via `_handle_def`."""
         self._handle_def(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
+        """Gère une fonction asynchrone via `_handle_def`."""
         self._handle_def(node)
 
     def _handle_def(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> None:
+        """Fabrique un `DefInfo` à partir du nœud de définition et l’ajoute au collecté."""
         qual = ".".join(self.stack + [node.name]) if self.stack else node.name
         params = [a.arg for a in list(node.args.posonlyargs) + list(node.args.args)]
         if node.args.vararg:
@@ -287,6 +301,7 @@ class _DefCollector(ast.NodeVisitor):
 # ------------------------- Extraction fichier -------------------
 
 def extract_python_file(py_path: Path) -> Dict[str, Any]:
+    """Analyse un fichier Python et retourne un dict (bannière, docstring module, defs, routes, erreurs)."""
     text = py_path.read_text(encoding="utf-8", errors="ignore")
     try:
         mod = ast.parse(text)
@@ -336,6 +351,7 @@ def extract_python_file(py_path: Path) -> Dict[str, Any]:
 # ----------------------------- Main -----------------------------
 
 def main(argv: List[str]) -> int:
+    """Point d’entrée : construit le snapshot YAML à partir d’une racine de projet."""
     # Args très simples (sans dépendance argparse pour rester minimal)
     root_arg: Optional[str] = None
     out_arg: Optional[str] = None

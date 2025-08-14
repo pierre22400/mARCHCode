@@ -1,4 +1,3 @@
-# tests/test_e2e_smoke_commit.py
 from __future__ import annotations
 
 """
@@ -33,6 +32,18 @@ from core.decision_router import Decision as DRDecision  # typage assert
 # ------------------------------- utils git -------------------------------
 
 def _run_git(args, cwd: Path) -> Tuple[int, str, str]:
+    """Exécute une commande Git dans un répertoire donné.
+
+    Args:
+        args: Séquence d’arguments pour `git` (ex: ["status", "--porcelain"]).
+        cwd: Répertoire de travail où exécuter la commande.
+
+    Returns:
+        Tuple `(rc, stdout, stderr)` :
+            - rc: code retour processus
+            - stdout: sortie standard nettoyée
+            - stderr: sortie erreur nettoyée
+    """
     p = subprocess.Popen(
         ["git", *args],
         cwd=str(cwd),
@@ -45,6 +56,17 @@ def _run_git(args, cwd: Path) -> Tuple[int, str, str]:
 
 
 def _init_repo() -> Path:
+    """Initialise un dépôt Git éphémère pour les tests E2E.
+
+    Le dépôt est configuré avec un user/email locaux et contient un
+    premier commit (via un `.gitkeep`) afin de simplifier les diffs.
+
+    Returns:
+        Chemin `Path` racine du dépôt initialisé.
+
+    Raises:
+        RuntimeError: si `git init` échoue.
+    """
     repo = Path(tempfile.mkdtemp(prefix="arch_e2e_"))
     rc, _, err = _run_git(["init", "."], cwd=repo)
     if rc != 0:
@@ -64,6 +86,12 @@ def _init_repo() -> Path:
 class ApplyAndCommit(Protocol):
     """Protocol pour appliquer un PatchBlock et effectuer un commit Git."""
     def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
+    """Applique un patch et crée un commit.
+
+    Args:
+        pb: PatchBlock à appliquer.
+        decision: Décision d’orchestration associée.
+    """
 
 
 class RegenerateWithACW(Protocol):
@@ -74,21 +102,49 @@ class RegenerateWithACW(Protocol):
         decision: Decision,
         reasoner: Optional[Reasoner] = None
     ) -> None: ...
+    """Déclenche une régénération ciblée.
+
+    Args:
+        pb: PatchBlock à régénérer.
+        decision: Décision d’orchestration.
+        reasoner: Optionnel, normaliseur de raisons/indices.
+    """
 
 
 class RollbackAndLog(Protocol):
     """Protocol pour effectuer un rollback local et journaliser l'opération."""
     def __call__(self, pb: PatchBlock, decision: Decision) -> None: ...
+    """Exclut un patch et journalise l’action.
+
+    Args:
+        pb: PatchBlock en cause.
+        decision: Décision d’orchestration.
+    """
 
 
 @dataclass
 class RealGitAdapters(OrchestrationAdapters):
-    """Adapter réel pour tester l’intégration Git dans les scénarios end-to-end."""
+    """Adapter réel pour tester l’intégration Git dans les scénarios end-to-end.
+
+    Attributes:
+        repo_root: Racine du dépôt dans lequel écrire et committer.
+    """
     repo_root: Path
 
     def __init__(self, repo_root: Path) -> None:
+        """Construit l’adaptateur avec callbacks d’écriture/commit/rollback.
+
+        Args:
+            repo_root: Racine du dépôt Git temporaire utilisé pendant le test.
+        """
+
         def _apply_and_commit(pb: PatchBlock, decision: Decision) -> None:
-            # Écrit le patch complet tel quel (MVP full-write) puis commit.
+            """Écrit le patch (full-write MVP) puis effectue un commit Git.
+
+            Args:
+                pb: PatchBlock à écrire.
+                decision: Décision d’orchestration (non utilisée ici).
+            """
             rel = pb.meta.file
             if not rel:
                 raise ValueError("meta.file requis")
@@ -106,11 +162,22 @@ class RealGitAdapters(OrchestrationAdapters):
                 setattr(pb.meta, "commit_sha", _last_commit_sha(self.repo_root))
 
         def _retry(pb: PatchBlock, decision: Decision, reasoner: Optional[Reasoner] = None) -> None:
-            # Pour un smoke, on n'implémente pas la régénération → no-op
+            """No-op pour le smoke test : pas de régénération ACW.
+
+            Args:
+                pb: PatchBlock à régénérer (ignoré).
+                decision: Décision d’orchestration (ignorée).
+                reasoner: Optionnel, non utilisé ici.
+            """
             pass
 
         def _rollback(pb: PatchBlock, decision: Decision) -> None:
-            # Pour un smoke, simple no-op + écriture d’un marqueur
+            """Écrit un marqueur de rollback dans le dépôt (no-op minimal).
+
+            Args:
+                pb: PatchBlock exclu.
+                decision: Décision d’orchestration (ignorée).
+            """
             (self.repo_root / ".rollback_marker").write_text("rollback", encoding="utf-8")
 
         super().__init__(
@@ -122,6 +189,17 @@ class RealGitAdapters(OrchestrationAdapters):
 
 
 def _last_commit_sha(repo_root: Path) -> str:
+    """Retourne le SHA du dernier commit HEAD du dépôt.
+
+    Args:
+        repo_root: Racine du dépôt Git.
+
+    Returns:
+        SHA complet (hex) du commit courant.
+
+    Raises:
+        RuntimeError: si `git rev-parse HEAD` échoue.
+    """
     rc, out, err = _run_git(["rev-parse", "HEAD"], cwd=repo_root)
     if rc != 0:
         raise RuntimeError(f"rev-parse failed: {err}")
@@ -131,9 +209,13 @@ def _last_commit_sha(repo_root: Path) -> str:
 # ------------------------------ fabrique PB ------------------------------
 
 def _make_minimal_pb() -> PatchBlock:
-    """
-    Construit un PatchBlock avec balises begin_meta/end_meta et une petite fonction.
-    FileChecker/ModuleChecker MVP acceptent la présence des balises + 'def '.
+    """Construit un PatchBlock minimal (balises + petite fonction).
+
+    Le FileChecker/ModuleChecker MVP accepte la présence des balises et
+    la détection d’un `def `, ce qui doit conduire à une action APPLY.
+
+    Returns:
+        PatchBlock prêt pour le pipeline local.
     """
     meta_inline = (
         "#{begin_meta: { file: demo/hello.py, module: demo, role: utility, "
@@ -149,7 +231,7 @@ def _make_minimal_pb() -> PatchBlock:
         "    \"\"\"\n"
         "    return f\"Hello {name}!\"\n"
     )
-    code = f"{meta_inline}{body}#{'{'}end_meta{'}'}\n"
+    code = f"{meta_inline}{body}#{'{' }end_meta{'}'}\n"
 
     meta = MetaBlock(
         file="demo/hello.py",
@@ -170,7 +252,22 @@ def _make_minimal_pb() -> PatchBlock:
 # --------------------------------- test ----------------------------------
 
 def test_e2e_smoke_commit():
-    """Teste le scénario e2e minimal avec commit Git simulé."""
+    """Teste le scénario e2e minimal avec commit Git simulé.
+
+    Pré-conditions :
+        - Git disponible sur l’hôte de test.
+
+    Étapes :
+        1) Initialise un dépôt Git temporaire.
+        2) Construit un PatchBlock minimal (balises + def).
+        3) Exécute `run_patch_local` avec de vrais adaptateurs Git.
+        4) Vérifie qu’un commit a bien été créé.
+
+    Assertions :
+        - La décision vaut APPLY (conditions remplies).
+        - Le fichier cible existe dans le dépôt.
+        - Un SHA valide est présent en HEAD.
+    """
     repo = _init_repo()
     adapters = RealGitAdapters(repo_root=repo)
     pb = _make_minimal_pb()
