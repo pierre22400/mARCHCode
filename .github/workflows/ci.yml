@@ -52,5 +52,10 @@ jobs:
           python -m pip install -U pip
           python -m pip install typer pyyaml rich
 
+      - name: Configure git user
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
       - name: Tag green
         run: python -m cli.main tag-green
