@@ -1,0 +1,56 @@
+name: mARCHCode CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          python -m pip install typer pyyaml rich
+
+      - name: Smoke import
+        run: python -c "import sys; print('python', sys.version)"
+
+      - name: Validate execution plan
+        run: python -m cli.main validate-ep --ep execution_plan.yaml
+
+      - name: Dry-run pipeline
+        run: python -m cli.main dry-run --ep execution_plan.yaml
+
+  tag_green_on_main:
+    needs: [ci]
+    if: ${{ github.ref == 'refs/heads/main' && needs.ci.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          python -m pip install typer pyyaml rich
+
+      - name: Tag green
+        run: python -m cli.main tag-green
