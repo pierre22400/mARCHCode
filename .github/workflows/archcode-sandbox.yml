@@ -1,0 +1,51 @@
+name: archcode-sandbox CI
+
+on:
+  push:
+    branches: ["archcode-self/**"]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # outils optionnels
+          pip install ruff pytest || true
+
+      - name: Aggregate modules → PGA
+        run: |
+          python -m agents.agent_module_compilator collect \
+            --reset-if-missing --only-ok --update-ec
+
+      - name: Validate plan → PV
+        run: |
+          python -m agents.agent_plan_validator validate --update-ec
+
+      - name: Build execution_plan.yaml
+        run: |
+          python -m scripts.execution_plan_transformer build
+
+      - name: Lint (ruff) — optionnel
+        run: ruff check || true
+
+      - name: Tests (pytest) — optionnel
+        run: pytest -q || true
+
+      - name: Upload .archcode artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: archcode-artifacts
+          path: .archcode/*.yaml
