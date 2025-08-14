@@ -56,6 +56,22 @@ jobs:
           pip --version
           pip list --format=columns
 
+      - name: Check GH_PAT secret exists
+        # Ne pas exécuter sur runs issus de fork PRs (les secrets ne sont pas disponibles)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "${GH_PAT}" ]; then
+            echo "::warning ::Secret GH_PAT is missing or not available in this run."
+            echo "If you rely on tag/remote pushes, create the GH_PAT secret in repository Settings → Secrets and variables → Actions"
+            # exit non-zero si tu veux faire échouer la job quand le secret est absent, 
+            # sinon laisse en warning et la suite s'exécutera
+            # exit 1
+          else
+            echo "GH_PAT looks available (masked)."
+          fi
+
       - name: Aggregate modules → plan_draft_aggregated.yaml (PGA)
         run: |
           python -m agents.agent_module_compilator collect \
