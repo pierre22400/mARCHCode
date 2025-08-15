@@ -26,271 +26,272 @@ jobs:
           python -m pip install pyyaml
 
       - name: Create dirs
-        run: mkdir -p scripts .archcode
+        run: |
+          mkdir -p scripts .archcode
 
       - name: Write context_snapshot.py
         shell: bash
         run: |
-cat > scripts/context_snapshot.py <<'PY'
-#!/usr/bin/env python3
-from __future__ import annotations
-"""
-Minimal context snapshot (stable)
-- Génère .archcode/context_snapshot.yaml
-- Remplit 'project' avec fallback (GITHUB_REPOSITORY puis basename)
-"""
-import ast, sys, os, platform, yaml
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime
+          cat > scripts/context_snapshot.py <<'PY'
+          #!/usr/bin/env python3
+          from __future__ import annotations
+          """
+          Minimal context snapshot (stable)
+          - Génère .archcode/context_snapshot.yaml
+          - Remplit 'project' avec fallback (GITHUB_REPOSITORY puis basename)
+          """
+          import ast, sys, os, platform, yaml
+          from dataclasses import dataclass
+          from pathlib import Path
+          from typing import Any, Dict, List, Optional, Union
+          from datetime import datetime
 
-IGNORED_DIRS = {".git","__pycache__",".venv","venv",".env",".mypy_cache",".pytest_cache","node_modules",".idea",".vscode"}
-DEFAULT_OUT = ".archcode/context_snapshot.yaml"
+          IGNORED_DIRS = {".git","__pycache__",".venv","venv",".env",".mypy_cache",".pytest_cache","node_modules",".idea",".vscode"}
+          DEFAULT_OUT = ".archcode/context_snapshot.yaml"
 
-class _LiteralDumper(yaml.SafeDumper): pass
-def _repr_str(dumper: yaml.Dumper, data: str):
-    style = "|" if ("\n" in data) else None
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
-_LiteralDumper.add_representer(str, _repr_str)
+          class _LiteralDumper(yaml.SafeDumper): pass
+          def _repr_str(dumper: yaml.Dumper, data: str):
+              style = "|" if ("\n" in data) else None
+              return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+          _LiteralDumper.add_representer(str, _repr_str)
 
-def iter_files(root: Path) -> List[Path]:
-    files: List[Path] = []
-    for p in sorted(root.rglob("*")):
-        try:
-            rel = p.relative_to(root)
-        except Exception:
-            continue
-        if any(seg in IGNORED_DIRS for seg in rel.parts):
-            continue
-        if p.is_file():
-            files.append(p)
-    return files
+          def iter_files(root: Path) -> List[Path]:
+              files: List[Path] = []
+              for p in sorted(root.rglob("*")):
+                  try:
+                      rel = p.relative_to(root)
+                  except Exception:
+                      continue
+                  if any(seg in IGNORED_DIRS for seg in rel.parts):
+                      continue
+                  if p.is_file():
+                      files.append(p)
+              return files
 
-def ascii_tree(root: Path) -> str:
-    lines=[str(root.resolve())]
-    def kids(d: Path) -> List[Path]:
-        out=[]
-        try:
-            it=sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-        except Exception:
-            return out
-        for p in it:
-            try:
-                rel=p.relative_to(root)
-            except Exception:
-                continue
-            if any(seg in IGNORED_DIRS for seg in rel.parts): continue
-            out.append(p)
-        return out
-    def walk(d: Path, prefix=""):
-        ch=kids(d)
-        for i,k in enumerate(ch):
-            joint="└── " if i==len(ch)-1 else "├── "
-            lines.append(f"{prefix}{joint}{k.name}")
-            if k.is_dir():
-                ext="    " if i==len(ch)-1 else "│   "
-                walk(k,prefix+ext)
-    walk(root)
-    return "\n".join(lines)
+          def ascii_tree(root: Path) -> str:
+              lines=[str(root.resolve())]
+              def kids(d: Path) -> List[Path]:
+                  out=[]
+                  try:
+                      it=sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+                  except Exception:
+                      return out
+                  for p in it:
+                      try:
+                          rel=p.relative_to(root)
+                      except Exception:
+                          continue
+                      if any(seg in IGNORED_DIRS for seg in rel.parts): continue
+                      out.append(p)
+                  return out
+              def walk(d: Path, prefix=""):
+                  ch=kids(d)
+                  for i,k in enumerate(ch):
+                      joint="└── " if i==len(ch)-1 else "├── "
+                      lines.append(f"{prefix}{joint}{k.name}")
+                      if k.is_dir():
+                          ext="    " if i==len(ch)-1 else "│   "
+                          walk(k,prefix+ext)
+              walk(root)
+              return "\n".join(lines)
 
-@dataclass
-class RouteInfo:
-    framework:str
-    method:Optional[Union[str,List[str]]]=None
-    path:Optional[str]=None
+          @dataclass
+          class RouteInfo:
+              framework:str
+              method:Optional[Union[str,List[str]]]=None
+              path:Optional[str]=None
 
-@dataclass
-class DefInfo:
-    qualname:str; name:str; lineno:int
-    params:List[str]; decorators:List[str]
-    docstring:Optional[str]; route:Optional[RouteInfo]
+          @dataclass
+          class DefInfo:
+              qualname:str; name:str; lineno:int
+              params:List[str]; decorators:List[str]
+              docstring:Optional[str]; route:Optional[RouteInfo]
 
-def _first_toplevel_string_after_imports(module: ast.Module) -> Optional[str]:
-    for node in module.body:
-        if isinstance(node, ast.Expr) and isinstance(getattr(node,"value",None), ast.Constant):
-            if isinstance(node.value.value,str): return node.value.value
-    return None
+          def _first_toplevel_string_after_imports(module: ast.Module) -> Optional[str]:
+              for node in module.body:
+                  if isinstance(node, ast.Expr) and isinstance(getattr(node,"value",None), ast.Constant):
+                      if isinstance(node.value.value,str): return node.value.value
+              return None
 
-def _decorator_to_text(dec: ast.AST) -> str:
-    def name_of(n):
-        if isinstance(n, ast.Name): return n.id
-        if isinstance(n, ast.Attribute): return f"{name_of(n.value)}.{n.attr}"
-        if isinstance(n, ast.Call): return name_of(n.func)
-        return n.__class__.__name__
-    return name_of(dec)
+          def _decorator_to_text(dec: ast.AST) -> str:
+              def name_of(n):
+                  if isinstance(n, ast.Name): return n.id
+                  if isinstance(n, ast.Attribute): return f"{name_of(n.value)}.{n.attr}"
+                  if isinstance(n, ast.Call): return name_of(n.func)
+                  return n.__class__.__name__
+              return name_of(dec)
 
-def _literal_str(node):
-    if isinstance(node, ast.Constant) and isinstance(node.value,str): return node.value
-    return None
+          def _literal_str(node):
+              if isinstance(node, ast.Constant) and isinstance(node.value,str): return node.value
+              return None
 
-def _literal_methods_from_kwargs(call: ast.Call):
-    for kw in call.keywords:
-        if kw.arg in {"methods","method"}:
-            v=kw.value
-            if isinstance(v,ast.List):
-                out=[e.value.upper() for e in v.elts if isinstance(e,ast.Constant) and isinstance(e.value,str)]
-                return out or None
-            if isinstance(v,ast.Constant) and isinstance(v.value,str):
-                return [v.value.upper()]
-    return None
+          def _literal_methods_from_kwargs(call: ast.Call):
+              for kw in call.keywords:
+                  if kw.arg in {"methods","method"}:
+                      v=kw.value
+                      if isinstance(v,ast.List):
+                          out=[e.value.upper() for e in v.elts if isinstance(e,ast.Constant) and isinstance(e.value,str)]
+                          return out or None
+                      if isinstance(v,ast.Constant) and isinstance(v.value,str):
+                          return [v.value.upper()]
+              return None
 
-def _detect_route(dec: ast.AST):
-    if isinstance(dec,ast.Call) and isinstance(dec.func,ast.Attribute):
-        attr=dec.func.attr.lower()
-        if attr in {"get","post","put","delete","patch","options","head"}:
-            return RouteInfo("fastapi", attr.upper(), _literal_str(dec.args[0]) if dec.args else None)
-        if attr=="route":
-            return RouteInfo("flask", _literal_methods_from_kwargs(dec) or ["GET"], _literal_str(dec.args[0]) if dec.args else None)
-        if attr=="command": return RouteInfo("typer","COMMAND",None)
-    if isinstance(dec,ast.Attribute):
-        attr=dec.attr.lower()
-        if attr in {"get","post","put","delete","patch","options","head"}: return RouteInfo("fastapi", attr.upper(), None)
-        if attr=="route": return RouteInfo("flask", ["GET"], None)
-        if attr=="command": return RouteInfo("typer","COMMAND",None)
-    return None
+          def _detect_route(dec: ast.AST):
+              if isinstance(dec,ast.Call) and isinstance(dec.func,ast.Attribute):
+                  attr=dec.func.attr.lower()
+                  if attr in {"get","post","put","delete","patch","options","head"}:
+                      return RouteInfo("fastapi", attr.upper(), _literal_str(dec.args[0]) if dec.args else None)
+                  if attr=="route":
+                      return RouteInfo("flask", _literal_methods_from_kwargs(dec) or ["GET"], _literal_str(dec.args[0]) if dec.args else None)
+                  if attr=="command": return RouteInfo("typer","COMMAND",None)
+              if isinstance(dec,ast.Attribute):
+                  attr=dec.attr.lower()
+                  if attr in {"get","post","put","delete","patch","options","head"}: return RouteInfo("fastapi", attr.upper(), None)
+                  if attr=="route": return RouteInfo("flask", ["GET"], None)
+                  if attr=="command": return RouteInfo("typer","COMMAND",None)
+              return None
 
-class _DefCollector(ast.NodeVisitor):
-    def __init__(self): self.stack=[]; self.defs=[]
-    def visit_ClassDef(self,node): self.stack.append(node.name); self.generic_visit(node); self.stack.pop()
-    def visit_FunctionDef(self,node): self._handle_def(node)
-    def visit_AsyncFunctionDef(self,node): self._handle_def(node)
-    def _handle_def(self,node):
-        qual=".".join(self.stack+[node.name]) if self.stack else node.name
-        params=[a.arg for a in list(node.args.posonlyargs)+list(node.args.args)]
-        if node.args.vararg: params.append("*"+node.args.vararg.arg)
-        if node.args.kwonlyargs: params+= [ka.arg for ka in node.args.kwonlyargs]
-        if node.args.kwarg: params.append("**"+node.args.kwarg.arg)
-        decs=[_decorator_to_text(d) for d in node.decorator_list]
-        route=None
-        for d in node.decorator_list:
-            r=_detect_route(d)
-            if r: route=r; break
-        doc=ast.get_docstring(node)
-        self.defs.append(DefInfo(qual,node.name,getattr(node,"lineno",-1),params,decs,doc,route))
+          class _DefCollector(ast.NodeVisitor):
+              def __init__(self): self.stack=[]; self.defs=[]
+              def visit_ClassDef(self,node): self.stack.append(node.name); self.generic_visit(node); self.stack.pop()
+              def visit_FunctionDef(self,node): self._handle_def(node)
+              def visit_AsyncFunctionDef(self,node): self._handle_def(node)
+              def _handle_def(self,node):
+                  qual=".".join(self.stack+[node.name]) if self.stack else node.name
+                  params=[a.arg for a in list(node.args.posonlyargs)+list(node.args.args)]
+                  if node.args.vararg: params.append("*"+node.args.vararg.arg)
+                  if node.args.kwonlyargs: params+= [ka.arg for ka in node.args.kwonlyargs]
+                  if node.args.kwarg: params.append("**"+node.args.kwarg.arg)
+                  decs=[_decorator_to_text(d) for d in node.decorator_list]
+                  route=None
+                  for d in node.decorator_list:
+                      r=_detect_route(d)
+                      if r: route=r; break
+                  doc=ast.get_docstring(node)
+                  self.defs.append(DefInfo(qual,node.name,getattr(node,"lineno",-1),params,decs,doc,route))
 
-def extract_python_file(py_path: Path) -> Dict[str,Any]:
-    text = py_path.read_text(encoding="utf-8", errors="ignore")
-    try:
-        mod = ast.parse(text)
-    except SyntaxError as e:
-        return {"path": str(py_path), "error": f"SyntaxError: {e}"}
+          def extract_python_file(py_path: Path) -> Dict[str,Any]:
+              text = py_path.read_text(encoding="utf-8", errors="ignore")
+              try:
+                  mod = ast.parse(text)
+              except SyntaxError as e:
+                  return {"path": str(py_path), "error": f"SyntaxError: {e}"}
 
-    # 1) docstring-literal banner (module-level string after imports)
-    banner = _first_toplevel_string_after_imports(mod)
+              # 1) docstring-literal banner (module-level string after imports)
+              banner = _first_toplevel_string_after_imports(mod)
 
-    # 2) fallback : bloc de commentaires en tête de fichier (consécutifs),
-    #    utile pour les bannières visuelles utilisant '# -----'
-    if not banner:
-        comment_lines = []
-        for ln in text.splitlines():
-            s = ln.strip()
-            # shebang / encoding lines are tolerated but not captured as banner:
-            if s.startswith("#!"):
-                continue
-            if s.startswith("# -*-") or s.startswith("# coding:"):
-                continue
-            if s.startswith("#"):
-                # retire le '#' initial et un espace éventuel
-                comment_lines.append(s.lstrip("# ").rstrip())
-                continue
-            # stop dès la première ligne non-comment/non-empty (après éventuels commentaires)
-            if s == "":
-                # autorise un blanc initial, continue si pas encore collecté
-                if comment_lines:
-                    break
-                else:
-                    continue
-            break
-        if comment_lines:
-            banner = "\n".join(comment_lines)
+              # 2) fallback : bloc de commentaires en tête de fichier (consécutifs),
+              #    utile pour les bannières visuelles utilisant '# -----'
+              if not banner:
+                  comment_lines = []
+                  for ln in text.splitlines():
+                      s = ln.strip()
+                      # shebang / encoding lines are tolerated but not captured as banner:
+                      if s.startswith("#!"):
+                          continue
+                      if s.startswith("# -*-") or s.startswith("# coding:"):
+                          continue
+                      if s.startswith("#"):
+                          # retire le '#' initial et un espace éventuel
+                          comment_lines.append(s.lstrip("# ").rstrip())
+                          continue
+                      # stop dès la première ligne non-comment/non-empty (après éventuels commentaires)
+                      if s == "":
+                          # autorise un blanc initial, continue si pas encore collecté
+                          if comment_lines:
+                              break
+                          else:
+                              continue
+                      break
+                  if comment_lines:
+                      banner = "\n".join(comment_lines)
 
-    module_doc = ast.get_docstring(mod)
-    col = _DefCollector()
-    col.visit(mod)
-    defs_out = []
-    for d in col.defs:
-        route_block = None
-        if d.route:
-            route_block = {"framework": d.route.framework, "method": d.route.method, "path": d.route.path}
-        defs_out.append(
-            {
-                "qualname": d.qualname,
-                "name": d.name,
-                "lineno": d.lineno,
-                "params": d.params,
-                "decorators": d.decorators or [],
-                "docstring": d.docstring or "",
-                "route": route_block,
-            }
-        )
-    return {
-        "path": str(py_path),
-        "banner": banner or "",
-        "module_docstring": module_doc or "",
-        "defs": defs_out,
-    }
+              module_doc = ast.get_docstring(mod)
+              col = _DefCollector()
+              col.visit(mod)
+              defs_out = []
+              for d in col.defs:
+                  route_block = None
+                  if d.route:
+                      route_block = {"framework": d.route.framework, "method": d.route.method, "path": d.route.path}
+                  defs_out.append(
+                      {
+                          "qualname": d.qualname,
+                          "name": d.name,
+                          "lineno": d.lineno,
+                          "params": d.params,
+                          "decorators": d.decorators or [],
+                          "docstring": d.docstring or "",
+                          "route": route_block,
+                      }
+                  )
+              return {
+                  "path": str(py_path),
+                  "banner": banner or "",
+                  "module_docstring": module_doc or "",
+                  "defs": defs_out,
+              }
 
-def main(argv):
-    # parse args
-    root_arg=None; out_arg=None
-    it=iter(argv)
-    for a in it:
-        if a=="--root": root_arg=next(it,None)
-        elif a=="--out": out_arg=next(it,None)
+          def main(argv):
+              # parse args
+              root_arg=None; out_arg=None
+              it=iter(argv)
+              for a in it:
+                  if a=="--root": root_arg=next(it,None)
+                  elif a=="--out": out_arg=next(it,None)
 
-    # root / out
-    root=Path(root_arg) if root_arg else Path.cwd()
-    if not root.exists():
-        print(f"[ERROR] Racine invalide: {root}", file=sys.stderr); return 2
-    out_path=Path(out_arg) if out_arg else root / DEFAULT_OUT
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+              # root / out
+              root=Path(root_arg) if root_arg else Path.cwd()
+              if not root.exists():
+                  print(f"[ERROR] Racine invalide: {root}", file=sys.stderr); return 2
+              out_path=Path(out_arg) if out_arg else root / DEFAULT_OUT
+              out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # files
-    all_files=iter_files(root)
-    py_files=[p for p in all_files if p.suffix==".py"]
+              # files
+              all_files=iter_files(root)
+              py_files=[p for p in all_files if p.suffix==".py"]
 
-    # robust project name
-    project_name = root.name or ""
-    if not project_name:
-        repo_env = os.environ.get("GITHUB_REPOSITORY")
-        if repo_env and "/" in repo_env:
-            project_name = repo_env.split("/", 1)[1]
-        else:
-            try:
-                project_name = os.path.basename(str(root.resolve()))
-            except Exception:
-                project_name = ""
+              # robust project name
+              project_name = root.name or ""
+              if not project_name:
+                  repo_env = os.environ.get("GITHUB_REPOSITORY")
+                  if repo_env and "/" in repo_env:
+                      project_name = repo_env.split("/", 1)[1]
+                  else:
+                      try:
+                          project_name = os.path.basename(str(root.resolve()))
+                      except Exception:
+                          project_name = ""
 
-    # snapshot
-    snapshot={
-        "snapshot": {
-            "project": project_name,
-            "root": str(root.resolve()),
-            "generated_at": datetime.utcnow().isoformat(timespec="seconds")+"Z",
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-            "files_count": len(all_files),
-            "py_files_count": len(py_files),
-            "ignored_dirs": sorted(list(IGNORED_DIRS)),
-        },
-        "tree": ascii_tree(root),
-        "files": [],
-    }
-    for py in py_files:
-        item=extract_python_file(py)
-        try: item["relpath"]=str(py.relative_to(root)).replace(os.sep,"/")
-        except Exception: item["relpath"]=str(py)
-        snapshot["files"].append(item)
+              # snapshot
+              snapshot={
+                  "snapshot": {
+                      "project": project_name,
+                      "root": str(root.resolve()),
+                      "generated_at": datetime.utcnow().isoformat(timespec="seconds")+"Z",
+                      "python": sys.version.split()[0],
+                      "platform": platform.platform(),
+                      "files_count": len(all_files),
+                      "py_files_count": len(py_files),
+                      "ignored_dirs": sorted(list(IGNORED_DIRS)),
+                  },
+                  "tree": ascii_tree(root),
+                  "files": [],
+              }
+              for py in py_files:
+                  item=extract_python_file(py)
+                  try: item["relpath"]=str(py.relative_to(root)).replace(os.sep,"/")
+                  except Exception: item["relpath"]=str(py)
+                  snapshot["files"].append(item)
 
-    with out_path.open("w", encoding="utf-8") as f:
-        yaml.dump(snapshot, f, Dumper=_LiteralDumper, sort_keys=False, allow_unicode=True, width=100)
-    print(f"[OK] Contexte écrit → {out_path}")
-    return 0
+              with out_path.open("w", encoding="utf-8") as f:
+                  yaml.dump(snapshot, f, Dumper=_LiteralDumper, sort_keys=False, allow_unicode=True, width=100)
+              print(f"[OK] Contexte écrit → {out_path}")
+              return 0
 
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
-PY
+          if __name__ == "__main__":
+              raise SystemExit(main(sys.argv[1:]))
+          PY
 
       - name: Run snapshot
         run: |
@@ -300,122 +301,122 @@ PY
       - name: Generate HTML page + true TiddlyWiki .tid (no truncation)
         shell: bash
         run: |
-cat > .archcode/_context_snapshot_html_builder.py <<'PY'
-import yaml, html, sys, json
-from pathlib import Path
-from datetime import datetime
+          cat > .archcode/_context_snapshot_html_builder.py <<'PY'
+          import yaml, html, sys, json
+          from pathlib import Path
+          from datetime import datetime
 
-src = Path(".archcode/context_snapshot.yaml")
-out_html = Path(".archcode/context_snapshot_tiddler.html")
-out_tid  = Path(".archcode/context_snapshot.tid")
+          src = Path(".archcode/context_snapshot.yaml")
+          out_html = Path(".archcode/context_snapshot_tiddler.html")
+          out_tid  = Path(".archcode/context_snapshot.tid")
 
-if not src.exists():
-    print("No snapshot YAML found", file=sys.stderr); raise SystemExit(2)
+          if not src.exists():
+              print("No snapshot YAML found", file=sys.stderr); raise SystemExit(2)
 
-s = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
-meta = s.get("snapshot", {}) or {}
-proj = html.escape(meta.get("project") or "")
+          s = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
+          meta = s.get("snapshot", {}) or {}
+          proj = html.escape(meta.get("project") or "")
 
-CSS = """
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;padding:16px;background:#fafafa;color:#222}
-  h1{margin:.2em 0 .4em}
-  h2{margin:.6em 0 .3em}
-  .box{background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:12px;margin:10px 0}
-  pre{white-space:pre-wrap;overflow:auto;background:#f7f7f7;border:1px solid #eee;border-radius:6px;padding:8px}
-  .meta li{margin:2px 0}
-  details{margin:6px 0}
-  summary{cursor:pointer;font-weight:600}
-  code.small{font-size:.9em}
-  .badge{display:inline-block;padding:0 6px;border-radius:4px;border:1px solid #ccc;font-size:.75em;margin-left:6px}
-  .badge.error{background:#fee;border-color:#f99;color:#900}
-  .error{background:#fff5f5;border:1px solid #f5c2c7;border-radius:6px;padding:8px;margin:8px 0}
-  .muted{color:#666}
-</style>
-"""
+          CSS = """
+          <style>
+            body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.45;padding:16px;background:#fafafa;color:#222}
+            h1{margin:.2em 0 .4em}
+            h2{margin:.6em 0 .3em}
+            .box{background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:12px;margin:10px 0}
+            pre{white-space:pre-wrap;overflow:auto;background:#f7f7f7;border:1px solid #eee;border-radius:6px;padding:8px}
+            .meta li{margin:2px 0}
+            details{margin:6px 0}
+            summary{cursor:pointer;font-weight:600}
+            code.small{font-size:.9em}
+            .badge{display:inline-block;padding:0 6px;border-radius:4px;border:1px solid #ccc;font-size:.75em;margin-left:6px}
+            .badge.error{background:#fee;border-color:#f99;color:#900}
+            .error{background:#fff5f5;border:1px solid #f5c2c7;border-radius:6px;padding:8px;margin:8px 0}
+            .muted{color:#666}
+          </style>
+          """
 
-frag = []
-frag.append(f"<h1>Context Snapshot — {proj or '—'}</h1>")
+          frag = []
+          frag.append(f"<h1>Context Snapshot — {proj or '—'}</h1>")
 
-frag.append("<div class='box'><h2>Métadonnées</h2><ul class='meta'>")
-for k in ("root","generated_at","python","platform","files_count","py_files_count","ignored_dirs"):
-  v = meta.get(k, "")
-  if isinstance(v, (list, tuple)): v = ", ".join(map(str, v))
-  frag.append(f"<li><strong>{html.escape(str(k))}</strong>: {html.escape(str(v))}</li>")
-frag.append("</ul></div>")
+          frag.append("<div class='box'><h2>Métadonnées</h2><ul class='meta'>")
+          for k in ("root","generated_at","python","platform","files_count","py_files_count","ignored_dirs"):
+            v = meta.get(k, "")
+            if isinstance(v, (list, tuple)): v = ", ".join(map(str, v))
+            frag.append(f"<li><strong>{html.escape(str(k))}</strong>: {html.escape(str(v))}</li>")
+          frag.append("</ul></div>")
 
-frag.append("<div class='box'><h2>Arbre du projet</h2><pre>")
-frag.append(html.escape(s.get("tree","") or ""))
-frag.append("</pre></div>")
+          frag.append("<div class='box'><h2>Arbre du projet</h2><pre>")
+          frag.append(html.escape(s.get("tree","") or ""))
+          frag.append("</pre></div>")
 
-files = s.get("files") or []
-frag.append(f"<div class='box'><h2>Fichiers ({len(files)})</h2>")
-for f in files:
-  rel = f.get("relpath") or f.get("path") or ""
-  rel_e = html.escape(rel)
-  defs = f.get("defs") or []
-  ndefs = len(defs)
-  err = f.get("error")
-  err_badge = " <span class='badge error'>parse error</span>" if err else ""
-  frag.append(f"<details><summary>{rel_e} — {ndefs} defs{err_badge}</summary>")
+          files = s.get("files") or []
+          frag.append(f"<div class='box'><h2>Fichiers ({len(files)})</h2>")
+          for f in files:
+            rel = f.get("relpath") or f.get("path") or ""
+            rel_e = html.escape(rel)
+            defs = f.get("defs") or []
+            ndefs = len(defs)
+            err = f.get("error")
+            err_badge = " <span class='badge error'>parse error</span>" if err else ""
+            frag.append(f"<details><summary>{rel_e} — {ndefs} defs{err_badge}</summary>")
 
-  if err:
-    frag.append(f"<div class='error'><strong>Erreur de parsing</strong><br><code>{html.escape(str(err))}</code></div>")
+            if err:
+              frag.append(f"<div class='error'><strong>Erreur de parsing</strong><br><code>{html.escape(str(err))}</code></div>")
 
-  if f.get("banner"):
-    frag.append("<div><strong>Banner</strong><pre>"+html.escape(str(f.get("banner")))+"</pre></div>")
-  if f.get("module_docstring"):
-    frag.append("<div><strong>Docstring module</strong><pre>"+html.escape(str(f.get("module_docstring")))+"</pre></div>")
+            if f.get("banner"):
+              frag.append("<div><strong>Banner</strong><pre>"+html.escape(str(f.get("banner")))+"</pre></div>")
+            if f.get("module_docstring"):
+              frag.append("<div><strong>Docstring module</strong><pre>"+html.escape(str(f.get("module_docstring")))+"</pre></div>")
 
-  if defs:
-    frag.append(f"<div><strong>Defs ({ndefs})</strong><ul>")
-    for d in defs:
-      q = d.get("qualname","")
-      ln = d.get("lineno","")
-      params = d.get("params") or []
-      sig = f"{d.get('name','')}(" + ", ".join(params) + ")"
-      route = d.get("route")
-      route_txt = ""
-      if isinstance(route, dict):
-        method = route.get("method")
-        if isinstance(method, list): method = ",".join(method)
-        path = route.get("path") or ""
-        route_txt = f" <span class='muted'>[{html.escape(str(route.get('framework') or ''))} {html.escape(str(method or ''))} {html.escape(str(path))}]</span>"
+            if defs:
+              frag.append(f"<div><strong>Defs ({ndefs})</strong><ul>")
+              for d in defs:
+                q = d.get("qualname","")
+                ln = d.get("lineno","")
+                params = d.get("params") or []
+                sig = f"{d.get('name','')}(" + ", ".join(params) + ")"
+                route = d.get("route")
+                route_txt = ""
+                if isinstance(route, dict):
+                  method = route.get("method")
+                  if isinstance(method, list): method = ",".join(method)
+                  path = route.get("path") or ""
+                  route_txt = f" <span class='muted'>[{html.escape(str(route.get('framework') or ''))} {html.escape(str(method or ''))} {html.escape(str(path))}]</span>"
 
-      ds_full = (d.get("docstring") or "").strip()
-      ds_first = ds_full.splitlines()[0] if ds_full else ""
-      li = f"<li><code class='small'>{html.escape(q)}</code> (line {html.escape(str(ln))}) — <code class='small'>{html.escape(sig)}</code>{route_txt}"
-      if ds_first:
-        li += f" — {html.escape(ds_first)}"
-      if ds_full and (('\\n' in ds_full) or (len(ds_full) > len(ds_first))):
-        li += f"<details><summary>docstring complète</summary><pre>{html.escape(ds_full)}</pre></details>"
-      li += "</li>"
-      frag.append(li)
-    frag.append("</ul></div>")
-  frag.append("</details>")
-frag.append("</div>")
+                ds_full = (d.get("docstring") or "").strip()
+                ds_first = ds_full.splitlines()[0] if ds_full else ""
+                li = f"<li><code class='small'>{html.escape(q)}</code> (line {html.escape(str(ln))}) — <code class='small'>{html.escape(sig)}</code>{route_txt}"
+                if ds_first:
+                  li += f" — {html.escape(ds_first)}"
+                if ds_full and (('\\n' in ds_full) or (len(ds_full) > len(ds_first))):
+                  li += f"<details><summary>docstring complète</summary><pre>{html.escape(ds_full)}</pre></details>"
+                li += "</li>"
+                frag.append(li)
+              frag.append("</ul></div>")
+            frag.append("</details>")
+          frag.append("</div>")
 
-fragment_html = CSS + "\n" + "\n".join(frag)
+          fragment_html = CSS + "\n" + "\n".join(frag)
 
-full_html = "<!doctype html>\n<html><head><meta charset='utf-8'><title>Context Snapshot — %s</title></head><body>%s</body></html>" % (proj, fragment_html)
-out_html.write_text(full_html, encoding="utf-8")
+          full_html = "<!doctype html>\n<html><head><meta charset='utf-8'><title>Context Snapshot — %s</title></head><body>%s</body></html>" % (proj, fragment_html)
+          out_html.write_text(full_html, encoding="utf-8")
 
-def tw_timestamp(dt):
-    return dt.strftime("%Y%m%d%H%M%S") + f"{dt.microsecond//1000:03d}"
+          def tw_timestamp(dt):
+              return dt.strftime("%Y%m%d%H%M%S") + f"{dt.microsecond//1000:03d}"
 
-now = datetime.utcnow()
-title = f"Context Snapshot — {meta.get('project') or '-'}"
-header = [
-    f"title: {title}",
-    "tags: mARCHCode Snapshot",
-    f"created: {tw_timestamp(now)}",
-    f"modified: {tw_timestamp(now)}",
-    "type: text/html",
-]
-out_tid.write_text("\n".join(header) + "\n\n" + fragment_html, encoding="utf-8")
+          now = datetime.utcnow()
+          title = f"Context Snapshot — {meta.get('project') or '-'}"
+          header = [
+              f"title: {title}",
+              "tags: mARCHCode Snapshot",
+              f"created: {tw_timestamp(now)}",
+              f"modified: {tw_timestamp(now)}",
+              "type: text/html",
+          ]
+          out_tid.write_text("\n".join(header) + "\n\n" + fragment_html, encoding="utf-8")
 
-print("Wrote:", out_html, "and", out_tid)
-PY
+          print("Wrote:", out_html, "and", out_tid)
+          PY
           test -f .archcode/context_snapshot_tiddler.html || (echo "HTML tiddler not generated!" && exit 1)
           test -f .archcode/context_snapshot.tid || (echo "TiddlyWiki .tid not generated!" && exit 1)
 
