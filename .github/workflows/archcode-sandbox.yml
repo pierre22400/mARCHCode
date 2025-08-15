@@ -75,7 +75,7 @@ jobs:
       - name: Aggregate modules → plan_draft_aggregated.yaml (PGA)
         run: |
           python -m agents.agent_module_compilator collect \
-            --reset-if-missing --only-ok --update-ec
+            --reset-if-missing --update-ec
         # cette étape est critique : si elle échoue, la job échoue
 
       - name: Validate plan → plan_validated.yaml (PV)
