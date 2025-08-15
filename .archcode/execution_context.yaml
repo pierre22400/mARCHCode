@@ -1,0 +1,16 @@
+bus_message_id: BM-0001
+spec_version: v0.0.1
+title: Test projet minimal
+loop_iteration: 0
+user_stories:
+- id: US-1
+  title: Authentification
+  description: Login / token
+input_sources: []
+output_targets: []
+functional_objectives:
+- Authentifier utilisateur
+non_functional_constraints: []
+modules:
+- auth
+plan_validated_id: PV-f4facffe

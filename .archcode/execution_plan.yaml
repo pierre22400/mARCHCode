@@ -1,0 +1,56 @@
+execution_plan:
+  project_name: project
+  bus_message_id: BM-0001
+  plan_validated_id: PV-f4facffe
+  spec_version_ref: v0.0.1
+  loop_iteration: 0
+  folder_root: archcode_app/
+  generated_at: '2025-08-15T08:35:52'
+  total_lines: 3
+  lines:
+  - plan_line_id: pl-0001-auth-c61e8a96
+    module_name: auth
+    user_story_id: US-1
+    responsibilities: &id001
+    - Gérer l'authentification (login, token)
+    depends_on: []
+    priority: haute
+    file_target: archcode_app/auth/__init__.py
+    file_kind: code
+    action: create_or_update
+    role_hint: null
+    meta:
+      bus_message_id: BM-0001
+      plan_validated_id: PV-f4facffe
+      plan_line_ref: pl-0001-auth-c61e8a96
+      loop_iteration: 0
+  - plan_line_id: pl-0002-auth-4100de5c
+    module_name: auth
+    user_story_id: US-1
+    responsibilities: *id001
+    depends_on: []
+    priority: haute
+    file_target: archcode_app/auth/handlers.py
+    file_kind: code
+    action: create_or_update
+    role_hint: handler
+    meta:
+      bus_message_id: BM-0001
+      plan_validated_id: PV-f4facffe
+      plan_line_ref: pl-0002-auth-4100de5c
+      loop_iteration: 0
+  - plan_line_id: pl-0003-auth-a94c0c0e
+    module_name: auth
+    user_story_id: US-1
+    responsibilities: *id001
+    depends_on: []
+    priority: haute
+    file_target: archcode_app/auth/models.py
+    file_kind: code
+    action: create_or_update
+    role_hint: model
+    meta:
+      bus_message_id: BM-0001
+      plan_validated_id: PV-f4facffe
+      plan_line_ref: pl-0003-auth-a94c0c0e
+      loop_iteration: 0

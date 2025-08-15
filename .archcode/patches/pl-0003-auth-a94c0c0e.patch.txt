@@ -1,0 +1,14 @@
+#{begin_meta: { content_hash: 81f51aca1b11, file: archcode_app/auth/models.py, marker_begin: # === ARCHCODE BEGIN pl_0003_auth_a94c0c0e models ===, marker_end: # === ARCHCODE END   pl_0003_auth_a94c0c0e models ===, markers_auto: true, module: archcode_app, plan_line_id: pl-0003-auth-a94c0c0e, role: function, status_agent_file_checker: pending, status_agent_module_checker: pending, timestamp: 2025-08-15T09:20:55 }}
+# === ARCHCODE BEGIN pl_0003_auth_a94c0c0e models ===
+def models() -> None:
+    """mARCHCode/ACW
+    Rôle: function
+    Acceptance (rappel):
+    - Gérer l'authentification (login, token)
+    NOTE: Implémentation minimale générée automatiquement.
+          Compléter la logique lors des itérations suivantes.
+    """
+    # TODO: implémenter la logique métier
+    raise NotImplementedError("À implémenter par itération suivante")
+# === ARCHCODE END   pl_0003_auth_a94c0c0e models ===
+#{end_meta}

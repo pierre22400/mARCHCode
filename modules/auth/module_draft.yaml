@@ -1,0 +1,15 @@
+module_draft:
+  module_name: auth
+  user_story_id: US-1
+  responsibilities:
+    - "Gérer l'authentification (login, token)"
+  files_expected:
+    - auth/__init__.py
+    - auth/handlers.py
+    - auth/models.py
+  depends_on: []
+  inputs: []
+  outputs: []
+  validator_status: ok
+  meta:
+    priority: haute
