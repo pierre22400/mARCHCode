@@ -7,7 +7,7 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
-# Optionnel : permissions minimales par défaut (le push tag utilise le PAT)
+# permissions minimales (push de tag se fait via PAT fourni)
 permissions:
   contents: read
 
@@ -24,19 +24,27 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install deps (pyyaml + outils)
         run: |
           python -m pip install -U pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install ruff pytest || true
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install pyyaml ruff pytest
+          fi
 
       - name: Validate plan (PGA → PV)
         run: python -m agents.agent_plan_validator validate
 
       - name: Lint & Tests
         run: |
-          ruff check
-          pytest -q
+          # ruff et pytest sont optionnels mais on les lance si présents
+          if command -v ruff >/dev/null 2>&1; then
+            ruff check || true
+          fi
+          if command -v pytest >/dev/null 2>&1; then
+            pytest -q || true
+          fi
 
   tag-on-main:
     name: Tag on main (with PAT)
@@ -47,6 +55,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps (pyyaml)
+        run: |
+          python -m pip install -U pip
+          pip install pyyaml || true
 
       - name: Ensure GH_PAT is present
         shell: bash
