@@ -1,11 +1,66 @@
+# =========================
+# Python bytecode & cache
+# =========================
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
+
+# =========================
+# OS / IDE
+# =========================
 .DS_Store
+.vscode/
+.idea/
+
+# =========================
+# Build / dist
+# =========================
+*.egg-info/
+dist/
+build/
+*.tar.gz
+
+# =========================
+# Virtual environments
+# =========================
+env/
+venv/
+.venv/
+
+# =========================
+# ARCHCode specific
+# =========================
 .arch_runs/
 .archcode/archive/
 .pytest_cache/
+
+# Autoriser ce fichier malgré .archcode/*
+!.archcode/context_snapshots/
+
+# =========================
+# Secrets & config sensibles
+# =========================
+.env
+*.key
+*.pem
+*.crt
+
+# Bytecode python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS & IDE
+.DS_Store
 .vscode/
 .idea/
+
+# ARCHCode
+.arch_runs/
+.archcode/archive/
+
+# Python env
 env/
 venv/
 .venv/
@@ -14,13 +69,6 @@ dist/
 build/
 *.tar.gz
 
+# Keep snapshots
 !.archcode/context_snapshots/
 
-cat >> .gitignore <<'EOF'
-# Bytecode python
-__pycache__/
-*.py[cod]
-*$py.class
-EOF__pycache__/
-*.py[cod]
-*$py.class
