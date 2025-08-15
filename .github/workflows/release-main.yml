@@ -1,0 +1,93 @@
+name: archcode release gate & tagging
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Optionnel : permissions minimales par défaut (le push tag utilise le PAT)
+permissions:
+  contents: read
+
+jobs:
+  gate-pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install ruff pytest || true
+
+      - name: Validate plan (PGA → PV)
+        run: python -m agents.agent_plan_validator validate
+
+      - name: Lint & Tests
+        run: |
+          ruff check
+          pytest -q
+
+  tag-on-main:
+    name: Tag on main (with PAT)
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure GH_PAT is present
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "❌ Missing secret GH_PAT"; exit 1
+          fi
+
+      - name: Set up git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute tag
+        id: v
+        shell: bash
+        run: |
+          # Simple versioning: v0.0.<run-number>
+          TAG="v0.0.${GITHUB_RUN_NUMBER}"
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag if not exists
+        id: mk
+        shell: bash
+        run: |
+          TAG="${{ steps.v.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists, skipping creation."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            git tag "${TAG}"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push tag with PAT
+        if: steps.mk.outputs.created == 'true'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        shell: bash
+        run: |
+          TAG="${{ steps.v.outputs.version }}"
+          REPO="${{ github.repository }}"
+          echo "Pushing ${TAG} to ${REPO}"
+          git push "https://x-access-token:${GH_PAT}@github.com/${REPO}.git" "${TAG}"

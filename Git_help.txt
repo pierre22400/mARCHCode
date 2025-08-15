@@ -99,6 +99,7 @@ stager tout et committer
 
 
 0/ commande unique (à faire dans mARCHCode)
+
 cela crée une nouvelle 
 
 git checkout -b archcode-self/local-runX && git add -A && git commit -m "chore(run): commit local run artifacts and fixes" && git push --set-upstream origin archcode-self/local-run
@@ -107,6 +108,11 @@ pour repartir d'une branche existante, faire
 git add -A && git commit -m "chore(git): update .gitignore and Git_help.txt" && git checkout archcode-self/local-run && git add -A && git commit -m "chore(run): commit local run artifacts and fixes" && git push --set-upstream origin archcode-self/local-run2
 
 
+
+=======
+changer éventuellement le nom de la branche archcode-self/local-run
+
+git checkout -b archcode-self/local-run2 && git add -A && git commit -m "chore(run): commit local run artifacts and fixes" && git push --set-upstream origin archcode-self/local-run
 
 
 et vérifier éventuellement avec 
