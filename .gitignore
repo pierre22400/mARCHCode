@@ -1,26 +1,47 @@
+# =========================
+# Python bytecode & cache
+# =========================
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
+
+# =========================
+# OS / IDE
+# =========================
 .DS_Store
-.arch_runs/
-.archcode/archive/
-.pytest_cache/
 .vscode/
 .idea/
-env/
-venv/
-.venv/
+
+# =========================
+# Build / dist
+# =========================
 *.egg-info/
 dist/
 build/
 *.tar.gz
 
+# =========================
+# Virtual environments
+# =========================
+env/
+venv/
+.venv/
+
+# =========================
+# ARCHCode specific
+# =========================
+.arch_runs/
+.archcode/archive/
+.pytest_cache/
+
+# Autoriser ce fichier malgré .archcode/*
 !.archcode/context_snapshots/
 
-cat >> .gitignore <<'EOF'
-# Bytecode python
-__pycache__/
-*.py[cod]
-*$py.class
-EOF__pycache__/
-*.py[cod]
-*$py.class
+# =========================
+# Secrets & config sensibles
+# =========================
+.env
+*.key
+*.pem
+*.crt
