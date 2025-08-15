@@ -1,121 +1,115 @@
-name: archcode-sandbox CI
+name: archcode release gate & tagging
 
 on:
+  pull_request:
+    branches: ["main"]
   push:
-    # déclenche sur branches archcode-self/*
-    branches:
-      - 'archcode-self/**'
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: archcode-sandbox-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  ci:
+  gate-pr:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     env:
-      PYTHONUNBUFFERED: 1
-      PYTHONPATH: ${{ github.workspace }}   # permet `import core`, `import agents.*` depuis repo
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps (pyyaml)
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pyyaml ruff pytest || true
+
+      - name: Validate plan (PGA → PV)
+        run: python -m agents.agent_plan_validator validate
+
+      - name: Lint & Tests (optionnel, non-bloquant)
+        continue-on-error: true
+        run: |
+          if command -v ruff >/dev/null 2>&1; then
+            ruff check . || true
+          else
+            echo "ruff not installed — skipping"
+          fi
+          if [ -f pytest.ini ] || [ -d tests ]; then
+            pytest -q || true
+          else
+            echo "No tests found — skipping pytest"
+          fi
+
+  tag-on-main:
+    name: Tag on main (with PAT)
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies (pip + pyyaml)
+      - name: Install deps (pyyaml)
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          # installer au minimum PyYAML + outils utiles
-          pip install pyyaml ruff pytest || true
+          pip install pyyaml || true
 
-      - name: Show python & pip info
+      - name: Ensure GH_PAT is present
+        shell: bash
         run: |
-          python --version
-          pip --version
-          python -c "import yaml; print('PyYAML OK', yaml.__version__)"
-          pip list --format=columns
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "❌ Missing secret GH_PAT"; exit 1
+          fi
 
-      - name: Check GH_PAT secret exists
-        if: ${{ github.event_name != 'pull_request' }}
+      - name: Set up git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute tag
+        id: v
+        shell: bash
+        run: |
+          TAG="v0.0.${GITHUB_RUN_NUMBER}"
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag if not exists
+        id: mk
+        shell: bash
+        run: |
+          TAG="${{ steps.v.outputs.version }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists, skipping creation."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            git tag "${TAG}"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push tag with PAT
+        if: steps.mk.outputs.created == 'true'
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
+        shell: bash
         run: |
-          if [ -z "${GH_PAT}" ]; then
-            echo "::warning ::Secret GH_PAT is missing or not available in this run."
-            echo "If you rely on tag/remote pushes, create the GH_PAT secret in repository Settings → Secrets and variables → Actions"
-          else
-            echo "GH_PAT looks available (masked)."
-          fi
-
-      - name: Aggregate modules → plan_draft_aggregated.yaml (PGA)
-        run: |
-          # --only-ok retiré car l'agent ne le supporte pas dans cette version
-          python -m agents.agent_module_compilator collect \
-            --reset-if-missing --update-ec
-
-      - name: Validate plan → plan_validated.yaml (PV)
-        run: |
-          python -m agents.agent_plan_validator validate --update-ec
-
-      - name: Build execution_plan.yaml
-        run: |
-          python -m scripts.execution_plan_transformer build
-
-      - name: Lint (ruff) — optionnel (non bloquant)
-        continue-on-error: true
-        run: |
-          if command -v ruff >/dev/null 2>&1; then
-            ruff check .
-          else
-            echo "ruff not installed — skipping lint"
-          fi
-
-      - name: Tests (pytest) — optionnel (non bloquant)
-        continue-on-error: true
-        run: |
-          if [ -f pytest.ini ] || [ -d tests ] || [ -f requirements.txt ]; then
-            pytest -q || true
-          else
-            echo "No tests found — skipping pytest"
-          fi
-
-      - name: List .archcode artifacts (for debugging)
-        if: always()
-        run: |
-          echo "ls -la .archcode || true"
-          ls -la .archcode || true
-          echo "show yaml heads"
-          for f in .archcode/*.yaml; do
-            [ -f "$f" ] || continue
-            echo "---- $f ----"
-            head -n 80 "$f" || true
-          done
-
-      - name: Upload .archcode artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: archcode-artifacts
-          path: .archcode/*.yaml
+          TAG="${{ steps.v.outputs.version }}"
+          REPO="${{ github.repository }}"
+          echo "Pushing ${TAG} to ${REPO}"
+          git push "https://x-access-token:${GH_PAT}@github.com/${REPO}.git" "${TAG}"
