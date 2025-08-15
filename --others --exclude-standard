@@ -1,0 +1,56 @@
+[1mdiff --git a/agents/acw.py b/agents/acw.py[m
+[1mindex 9a3617c..109c9be 100644[m
+[1m--- a/agents/acw.py[m
+[1m+++ b/agents/acw.py[m
+[36m@@ -3,6 +3,8 @@[m [mfrom __future__ import annotations[m
+ [m
+ from typing import Any, Dict, List, Optional, Tuple[m
+ from textwrap import indent[m
+[32m+[m[32mfrom pathlib import Path[m
+[32m+[m
+ import hashlib[m
+ import re[m
+ [m
+[36m@@ -145,6 +147,42 @@[m [mdef _hash_payload(s: str) -> str:[m
+     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12][m
+ [m
+ [m
+[32m+[m
+[32m+[m[32mdef _sanitize_marker(marker: str) -> str:[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Normalise un marker fourni par l'ACWP/runner.[m
+[32m+[m[32m    - vide -> ""[m
+[32m+[m[32m    - supprime espaces superflus et nouvelles lignes[m
+[32m+[m[32m    - s'assure que le marker commence par un commentaire Python '#' pour sécurité[m
+[32m+[m[32m    - retourne la chaîne sur une seule ligne (sans \n final)[m
+[32m+[m[32m    """[m
+[32m+[m[32m    if not marker:[m
+[32m+[m[32m        return ""[m
+[32m+[m[32m    s = str(marker).strip()[m
+[32m+[m[32m    # Retirer nouvelles lignes internes[m
+[32m+[m[32m    s = " ".join(s.splitlines())[m
+[32m+[m[32m    # Préfixer par '# ' si l'utilisateur n'a fourni qu'un identifiant nu[m
+[32m+[m[32m    if not s.startswith("#"):[m
+[32m+[m[32m        s = "# " + s[m
+[32m+[m[32m    return s[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef _default_markers(plan_line_id: str, file_path: str) -> tuple[str, str]:[m
+[32m+[m[32m    """[m
+[32m+[m[32m    Génère des marqueurs begin/end sûrs et uniques pour une plan_line.[m
+[32m+[m[32m    Format lisible et stable, évite collisions courantes.[m
+[32m+[m[32m    """[m
+[32m+[m[32m    # rendre le plan_line_id sûr (chars non-alphanum -> underscore)[m
+[32m+[m[32m    safe_id = re.sub(r"[^\w]", "_", (plan_line_id or "pl").strip())[m
+[32m+[m[32m    # incorporer un fragment de nom de fichier (utile pour debug)[m
+[32m+[m[32m    fname = Path(file_path).stem if file_path else "file"[m
+[32m+[m[32m    fname_safe = re.sub(r"[^\w]", "_", fname)[:24][m
+[32m+[m[32m    begin = f"# === ARCHCODE BEGIN {safe_id} {fname_safe} ==="[m
+[32m+[m[32m    end =   f"# === ARCHCODE END   {safe_id} {fname_safe} ==="[m
+[32m+[m[32m    return begin, end[m
+[32m+[m
+[32m+[m
+[32m+[m
+ def _render_meta_inline(meta: Dict[str, Any]) -> str:[m
+     """Rend le dict `meta` en ligne juste après #{begin_meta: ...} avec tri des clés (diff stable)."""[m
+     items = [][m

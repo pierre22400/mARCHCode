@@ -521,6 +521,38 @@ def cmd_show(out: Path) -> None:
         for m in mods:
             print(f"  - {m:12s} : {statuses.get(m, '∅')}")
 
+def collect_modules(
+    *,
+    ec_yaml: Path,
+    pd_yaml: Path,
+    out: Path,
+    roots: List[Path],
+    patterns: Optional[List[str]],
+    reset: bool,
+    reset_if_missing: bool,
+    allow_non_ok: bool,
+    accept_untagged: bool,
+    update_ec: bool,
+) -> None:
+    """
+    Wrapper for backward compatibility: forwards call to cmd_collect.
+
+    Ce wrapper existe pour conserver l'API historique (anciennement certains
+    appels testaient collect_modules(...) directement). Il doit être défini
+    avant main() pour être disponible lorsque le module est exécuté en script.
+    """
+    return cmd_collect(
+        ec_yaml=ec_yaml,
+        pd_yaml=pd_yaml,
+        out=out,
+        roots=roots,
+        patterns=patterns,
+        reset=reset,
+        reset_if_missing=reset_if_missing,
+        allow_non_ok=allow_non_ok,
+        accept_untagged=accept_untagged,
+        update_ec=update_ec,
+    )
 
 # -----------------------------------------------------------------------------
 # CLI

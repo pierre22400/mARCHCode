@@ -15,3 +15,12 @@ build/
 *.tar.gz
 
 !.archcode/context_snapshots/
+
+cat >> .gitignore <<'EOF'
+# Bytecode python
+__pycache__/
+*.py[cod]
+*$py.class
+EOF__pycache__/
+*.py[cod]
+*$py.class

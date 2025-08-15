@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 from textwrap import indent
+from pathlib import Path
+
 import hashlib
 import re
 
@@ -143,6 +145,42 @@ def _validate_writer_task(task: Dict[str, Any]) -> None:
 def _hash_payload(s: str) -> str:
     """Retourne un SHA-256 tronqué (12 hex) pour la charge utile Python."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
+
+
+
+def _sanitize_marker(marker: str) -> str:
+    """
+    Normalise un marker fourni par l'ACWP/runner.
+    - vide -> ""
+    - supprime espaces superflus et nouvelles lignes
+    - s'assure que le marker commence par un commentaire Python '#' pour sécurité
+    - retourne la chaîne sur une seule ligne (sans \n final)
+    """
+    if not marker:
+        return ""
+    s = str(marker).strip()
+    # Retirer nouvelles lignes internes
+    s = " ".join(s.splitlines())
+    # Préfixer par '# ' si l'utilisateur n'a fourni qu'un identifiant nu
+    if not s.startswith("#"):
+        s = "# " + s
+    return s
+
+
+def _default_markers(plan_line_id: str, file_path: str) -> tuple[str, str]:
+    """
+    Génère des marqueurs begin/end sûrs et uniques pour une plan_line.
+    Format lisible et stable, évite collisions courantes.
+    """
+    # rendre le plan_line_id sûr (chars non-alphanum -> underscore)
+    safe_id = re.sub(r"[^\w]", "_", (plan_line_id or "pl").strip())
+    # incorporer un fragment de nom de fichier (utile pour debug)
+    fname = Path(file_path).stem if file_path else "file"
+    fname_safe = re.sub(r"[^\w]", "_", fname)[:24]
+    begin = f"# === ARCHCODE BEGIN {safe_id} {fname_safe} ==="
+    end =   f"# === ARCHCODE END   {safe_id} {fname_safe} ==="
+    return begin, end
+
 
 
 def _render_meta_inline(meta: Dict[str, Any]) -> str:

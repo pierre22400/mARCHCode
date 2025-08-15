@@ -1,0 +1,18 @@
+project_draft:
+  project_name: test_project
+  global_objectives:
+    - "API minimal"
+  initial_modules:
+    - auth
+    - core
+  dependencies:
+    - auth → core
+  folder_structure:
+    root: marchcode_app/
+    structure:
+      - name: core/
+        description: "Core code"
+      - name: auth/
+        description: "Auth module"
+      - name: tests/
+        description: "Tests"

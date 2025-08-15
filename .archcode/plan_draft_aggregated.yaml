@@ -1,0 +1,36 @@
+plan_draft_aggregated:
+  project_name: project
+  bus_message_id: BM-0001
+  spec_version_ref: v0.0.1
+  loop_iteration: 0
+  modules:
+  - auth
+  dependencies: []
+  folder_structure: {}
+  items:
+  - status: ok
+    source_path: C:\Users\Utilisateur\Documents\mARCHCode\modules\auth\module_draft.yaml
+    ingested_at: '2025-08-15T08:31:23'
+    module_draft:
+      module_name: auth
+      user_story_id: US-1
+      responsibilities:
+      - Gérer l'authentification (login, token)
+      files_expected:
+      - auth/__init__.py
+      - auth/handlers.py
+      - auth/models.py
+      depends_on: []
+      inputs: []
+      outputs: []
+      validator_status: ok
+      meta:
+        priority: haute
+  warnings: []
+  stats:
+    total_items: 1
+    validated: 1
+    pending: 0
+    rejected: 0
+  issued_at: '2025-08-15T08:31:23'
+  aggregated_at: '2025-08-15T08:31:23'

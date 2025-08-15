@@ -1,0 +1,201 @@
+
+
+
+créer environnement .venv
+
+
+dir /b
+(si .venv n'est pas listé, alors le  créer)
+
+python -m venv .venv
+
+
+Tester agent_module_compilator (commande à lancer depuis la racine du repo)
+.venv\Scripts\python.exe -m agents.agent_module_compilator collect --reset-if-missing --update-ec
+
+
+quand plan_draft_aggregated a été généré, faire
+
+.\.venv\Scripts\python.exe -m agents.agent_plan_validator validate ^
+  --ec .archcode\execution_context.yaml ^
+  --pga .archcode\plan_draft_aggregated.yaml ^
+  --out .archcode\plan_validated.yaml ^
+  --comment-out .archcode\comment_agent_plan_validator.yaml ^
+  --update-ec
+
+quand le plan_validated a été généré, construire l’execution_plan.yaml (transformateur déterministe)
+
+.\.venv\Scripts\python.exe -m scripts.execution_plan_transformer build ^
+  --pv .archcode\plan_validated.yaml ^
+  --pd .archcode\project_draft.yaml ^
+  --ec .archcode\execution_context.yaml ^
+  --out .archcode\execution_plan.yaml
+
+
+
+
+
+
+
+Git
+
+
+Vérifier ce qui a changé (rapide, sans risque)
+
+Ça te permet de voir exactement quelles modifications ont été faites avant d’agir.
+
+REM voir l'état synthétique
+git status
+
+REM voir le diff d'un fichier modifié important
+git diff agents\acw.py
+
+REM lister les fichiers non trackés (pour confirmer)
+git ls-files --others --exclude-standard
+
+#####################################################
+
+Tu veux aussi committer les modifications de code
+
+Si tu as volontairement patché agents/acw.py ou runner/run_plan.py et que tu veux les inclure :
+
+git checkout -b archcode-self/local-run
+git add agents\acw.py agents\acwp.py runner\run_plan.py agents\agent_module_compilator.py
+git add .archcode\*   (ou les fichiers .archcode listés avant)
+git commit -m "feat: update ACW/runner + add generated patches from local run"
+
+#####################################################
+
+Tu veux annuler / retirer les modifications non désirées
+
+Si les fichiers listés comme modified sont accidentels (par ex. tu n’as pas voulu toucher agents/*.py) :
+
+Pour annuler les changements non commités (retour à HEAD) :
+
+git restore agents\acw.py
+git restore agents\acwp.py
+git restore agents\agent_module_compilator.py
+git restore runner\run_plan.py
+
+
+Pour stocker les modifications temporairement (stash) :
+
+git stash push -m "wip before applying patches"
+############################################################################
+) Si tu veux revenir à un état propre puis refaire le run
+
+Si tu veux annuler tout et repartir :
+
+REM nettoyer modifications non commités
+git restore .
+
+REM supprimer les fichiers non trackés créés par le run (danger : destructif)
+REM liste d'abord pour vérifier
+git clean -n -d
+REM puis exécuter si OK
+git clean -f -d
+############################################################
+stager tout et committer
+
+
+0/ commande unique (à faire dans mARCHCode)
+changer éventuellement le nom de la branche archcode-self/local-run
+
+git checkout -b archcode-self/local-run2 && git add -A && git commit -m "chore(run): commit local run artifacts and fixes" && git push --set-upstream origin archcode-self/local-run
+
+et vérifier éventuellement avec 
+
+git status
+git log -1 --stat
+git branch -vv
+
+
+
+############################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1) (Recommandé) créer une branche de travail
+
+Cette étape évite de polluer master si tu veux expérimenter :
+
+git checkout -b archcode-self/local-run
+
+2) Stager tout et committer
+git add -A
+git commit -m "chore(run): commit all local changes and generated artifacts from local run"
+
+
+Vérifie le commit effectué :
+
+git status
+git log -1 --stat
+
+
+3) (Optionnel) pousser la branche vers le remote
+
+Tentative simple (va demander tes identifiants si nécessaire) :
+
+git push --set-upstream origin archcode-self/local-run
+
+
+
+
+
+Si le push réussit : top.
+
+Si le push échoue avec 403 / permission denied (cas fréquent avec github-actions[bot] ou PAT manquant), tu as plusieurs options :
+
+Option A — utiliser Git Credential Manager (recommandé)
+Configure GCM et relance le push ; il te demandera ton token une seule fois :
+
+git config --global credential.helper manager-core
+git push --set-upstream origin archcode-self/local-run
+
+
+Quand ça demande username/password, mets ton nom d'utilisateur GitHub et en mot de passe colle ton PAT (token).
+
+Option B — pousser en ligne de commande en incorporant un token (moins sûr : laisse une trace dans l’historique shell — évite si possible)
+Remplace GH_PAT et USER/REPO par tes valeurs :
+
+git push https://x-access-token:GH_PAT@github.com/USER/REPO.git archcode-self/local-run:archcode-self/local-run
+
+
+Après, restaure l'URL du remote pour ne pas garder le token en clair :
+
+git remote set-url origin https://github.com/USER/REPO.git
+
+
+Option C — créer un fork / sandbox remote
+Si tu préfères, tu peux simplement garder le commit local (pas de push) et nous travaillerons dessus ensuite.
+
+########################################################
+4) Si tu as commis par erreur et veux annuler le commit
+
+Pour annuler le dernier commit mais garder les modifications staged (soft):
+
+git reset --soft HEAD~1
+
+
+Pour annuler le commit et désindexer (remet tout en unstaged):
+
+git reset --mixed HEAD~1
+
+
+Pour annuler tout et revenir à l’état du dernier commit (destructif — perd les changements non commités) :
+
+git restore .          # ou, si git ancien : git checkout -- .
+
+
+

@@ -1,0 +1,14 @@
+#{begin_meta: { content_hash: 9084de6f7771, file: archcode_app/auth/handlers.py, marker_begin: # === ARCHCODE BEGIN pl_0002_auth_4100de5c handlers ===, marker_end: # === ARCHCODE END   pl_0002_auth_4100de5c handlers ===, markers_auto: true, module: archcode_app, plan_line_id: pl-0002-auth-4100de5c, role: function, status_agent_file_checker: pending, status_agent_module_checker: pending, timestamp: 2025-08-15T09:20:55 }}
+# === ARCHCODE BEGIN pl_0002_auth_4100de5c handlers ===
+def handlers() -> None:
+    """mARCHCode/ACW
+    Rôle: function
+    Acceptance (rappel):
+    - Gérer l'authentification (login, token)
+    NOTE: Implémentation minimale générée automatiquement.
+          Compléter la logique lors des itérations suivantes.
+    """
+    # TODO: implémenter la logique métier
+    raise NotImplementedError("À implémenter par itération suivante")
+# === ARCHCODE END   pl_0002_auth_4100de5c handlers ===
+#{end_meta}

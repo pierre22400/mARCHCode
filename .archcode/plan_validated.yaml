@@ -1,0 +1,26 @@
+plan_validated:
+  plan_validated_id: PV-f4facffe
+  bus_message_id: BM-0001
+  spec_version_ref: v0.0.1
+  loop_iteration: 0
+  project_name: project
+  modules:
+  - module_name: auth
+    user_story_id: US-1
+    responsibilities:
+    - Gérer l'authentification (login, token)
+    inputs: []
+    outputs: []
+    files_expected:
+    - auth/__init__.py
+    - auth/handlers.py
+    - auth/models.py
+    depends_on: []
+    technical_constraints: []
+    meta:
+      priority: haute
+  meta:
+    comment_agent_plan_validator: ''
+    created_at: '2025-08-15T08:33:36'
+    validated_at: '2025-08-15T08:33:36'
+  plan_diffs: []
